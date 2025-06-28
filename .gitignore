@@ -1,0 +1,326 @@
+# Rust
+/target/
+**/**/target/
+Cargo.lock
+*.pdb
+
+# Build artifacts
+/examples/**/target/
+/crates/**/target/
+*.krb
+*.o
+*.so
+*.dylib
+*.dll
+*.exe
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Dependency directories
+node_modules/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+.env.test
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# next.js build output
+.next
+
+# nuxt.js build output
+.nuxt
+
+# vuepress build output
+.vuepress/dist
+
+# Serverless directories
+.serverless/
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+
+# Kryon specific
+# Generated KRB files from examples
+/test-files/*.krb
+/examples/**/*.krb
+
+# Font files (can be large)
+*.ttf
+*.otf
+*.woff
+*.woff2
+
+# Generated documentation
+/target/doc/
+/doc/
+
+# Benchmark results
+/benches/results/
+
+# Test output
+/test-output/
+*.test
+
+# Profiling data
+*.prof
+perf.data*
+flamegraph.svg
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Editor backup files
+*.bak
+*.orig
+
+# Rust analyzer cache
+.rust-analyzer/
+
+# WebAssembly output
+pkg/
+*.wasm
+
+# Generated assets
+/assets/generated/
+
+# Local configuration
+.local/
+local.toml
+
+# Memory dumps
+*.dmp
+core
+core.*
+
+# Crash dumps
+crash-*.log
+
+# Performance logs
+*.perf
+
+# GPU debug files
+*.pix
+*.nsight-cuprof
+*.nvvp
+
+# Asset pipeline cache
+.asset-cache/
+
+# Shader compilation cache
+.shader-cache/
+
+# Platform specific build files
+*.xcodeproj/
+*.xcworkspace/
+build/
+DerivedData/
+
+# Android specific (for mobile targets)
+*.apk
+*.aab
+local.properties
+
+# iOS specific (for mobile targets)
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Web assembly specific
+www/pkg/
+www/node_modules/
+www/dist/
+
+# Emscripten cache
+.emscripten_cache/
+
+# Bindgen generated files (if using)
+src/bindings.rs
+
+# Automatically generated files
+generated/
+gen/
+
+# Lock files for examples
+examples/**/Cargo.lock
+
+# Documentation artifacts
+book/
+mdbook/
+
+# Release artifacts
+releases/
+dist/
+
+# Benchmark comparison data
+criterion/
+
+# Flamegraph output
+flamegraph-*.svg
+perf-*.svg
+
+# Memory profiling
+massif.out.*
+cachegrind.out.*
+callgrind.out.*
+
+# Valgrind output
+vgcore.*
+
+# Core dumps
+*.core
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Eclipse
+.project
+.metadata
+bin/
+tmp/
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.settings/
+.loadpath
+.recommenders
+
+# External tool builders
+.externalToolBuilders/
+
+# Locally stored "Eclipse launch configurations"
+*.launch
+
+# PyDev specific (Python IDE for Eclipse)
+*.pydevproject
+
+# CDT-specific (C/C++ Development Tooling)
+.cproject
+
+# CDT- autotools
+.autotools
+
+# Java annotation processor (APT)
+.factorypath
+
+# PDT-specific (PHP Development Tools)
+.buildpath
+
+# sbteclipse plugin
+.target
+
+# Tern plugin
+.tern-project
+
+# TeXlipse plugin
+.texlipse
+
+# STS (Spring Tool Suite)
+.springBeans
+
+# Code Recommenders
+.recommenders/
+
+# Annotation Processing
+.apt_generated/
+.apt_generated_test/
+
+# Scala IDE specific (Scala & Java development)
+.cache-main
+.scala_dependencies
+.worksheet
+
+# Vim
+*.swp
+*.swo
+*.un~
+Session.vim
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Atom
+.atom/

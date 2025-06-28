@@ -1,0 +1,20 @@
+# crates/kryon-wgpu/Cargo.toml
+[package]
+name = "kryon-wgpu"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kryon-core = { path = "../kryon-core" }
+kryon-render = { path = "../kryon-render" }
+wgpu = { workspace = true }
+winit = { workspace = true }
+bytemuck = { workspace = true, features = ["derive"] }
+glam = { workspace = true }
+anyhow = { workspace = true }
+pollster = { workspace = true }
+tracing = { workspace = true }
+
+# Font rendering
+fontdue = "0.8"
+image = "0.24"

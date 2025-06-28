@@ -1,0 +1,69 @@
+# test-files/sample.kry (source file for reference)
+@variables {
+    primary_color: "#007BFF"
+    secondary_color: "#6C757D"
+    spacing: 16
+}
+
+style "button_primary" {
+    background_color: $primary_color
+    text_color: "#FFFFFF"
+    border_radius: 6
+    padding: 12
+    font_weight: bold
+}
+
+style "container_main" {
+    background_color: "#F8F9FA"
+    padding: $spacing
+}
+
+@script "lua" {
+    function handleButtonClick()
+        print("Button clicked!")
+        local button = kryon.getElementById("my_button")
+        button.text = "Clicked!"
+    end
+}
+
+App {
+    window_title: "Kryon Sample App"
+    window_width: 800
+    window_height: 600
+    background_color: "#FFFFFF"
+    
+    Container {
+        id: "main_container"
+        style: "container_main"
+        layout: column center grow
+        
+        Text {
+            id: "title"
+            text: "Welcome to Kryon"
+            font_size: 24
+            font_weight: bold
+            text_color: "#333333"
+            margin: $spacing
+        }
+        
+        Button {
+            id: "my_button"
+            text: "Click Me"
+            style: "button_primary"
+            onClick: "handleButtonClick"
+            margin: $spacing
+            
+            &:hover {
+                background_color: "#0056B3"
+                transform: "scale(1.05)"
+            }
+        }
+        
+        Input {
+            id: "text_input"
+            placeholder: "Enter some text..."
+            width: 300
+            margin: $spacing
+        }
+    }
+}

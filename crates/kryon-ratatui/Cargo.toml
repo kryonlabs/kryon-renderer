@@ -1,0 +1,13 @@
+# crates/kryon-ratatui/Cargo.toml
+[package]
+name = "kryon-ratatui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kryon-core = { path = "../kryon-core" }
+kryon-render = { path = "../kryon-render" }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+glam = { workspace = true }
+anyhow = { workspace = true }

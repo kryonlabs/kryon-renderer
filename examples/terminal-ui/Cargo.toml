@@ -1,0 +1,12 @@
+# examples/terminal-ui/Cargo.toml
+[package]
+name = "terminal-ui-example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kryon-runtime = { path = "../../crates/kryon-runtime", features = ["ratatui"] }
+kryon-ratatui = { path = "../../crates/kryon-ratatui" }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+anyhow = { workspace = true }

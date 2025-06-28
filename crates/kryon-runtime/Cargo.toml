@@ -1,0 +1,23 @@
+# crates/kryon-runtime/Cargo.toml
+[package]
+name = "kryon-runtime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kryon-core = { path = "../kryon-core" }
+kryon-layout = { path = "../kryon-layout" }
+kryon-render = { path = "../kryon-render" }
+kryon-wgpu = { path = "../kryon-wgpu", optional = true }
+kryon-ratatui = { path = "../kryon-ratatui", optional = true }
+
+winit = { workspace = true }
+glam = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+pollster = { workspace = true }
+
+[features]
+default = ["wgpu"]
+wgpu = ["dep:kryon-wgpu"]
+ratatui = ["dep:kryon-ratatui"]

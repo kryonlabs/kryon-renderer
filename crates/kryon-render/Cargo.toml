@@ -1,0 +1,12 @@
+# crates/kryon-render/Cargo.toml
+[package]
+name = "kryon-render"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kryon-core = { path = "../kryon-core" }
+kryon-layout = { path = "../kryon-layout" }
+glam = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }

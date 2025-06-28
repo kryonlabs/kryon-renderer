@@ -1,0 +1,35 @@
+# kryon-renderer/Cargo.toml
+[workspace]
+members = [
+    "crates/kryon-core",
+    "crates/kryon-layout", 
+    "crates/kryon-render",
+    "crates/kryon-wgpu",
+    "crates/kryon-ratatui",
+    "crates/kryon-runtime"
+]
+
+[workspace.dependencies]
+# Common dependencies
+anyhow = "1.0"
+thiserror = "1.0"
+bytemuck = { version = "1.14", features = ["derive"] }
+glam = "0.25"
+tracing = "0.1"
+
+# Rendering
+wgpu = "0.19"
+winit = "0.29"
+ratatui = "0.26"
+crossterm = "0.27"
+
+# Async
+pollster = "0.3"
+tokio = { version = "1.0", features = ["full"] }
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = 3
+lto = true

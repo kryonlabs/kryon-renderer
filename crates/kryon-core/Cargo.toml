@@ -1,0 +1,12 @@
+# crates/kryon-core/Cargo.toml
+[package]
+name = "kryon-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+bytemuck = { workspace = true }
+glam = { workspace = true }
+tracing = { workspace = true }
