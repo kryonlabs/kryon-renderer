@@ -160,34 +160,9 @@ pkgs.mkShell {
   WGPU_POWER_PREF = "low";  # Prefer integrated GPU
 
   shellHook = ''
-    echo "Kryon Renderer development environment ready (Intel HD Graphics 620 optimized)"
-    
     # Check environment
     echo ""
     echo "🔍 Graphics Environment:"
-    
-    # Check ICD files
-    if [ -f "${pkgs.mesa.drivers}/share/vulkan/icd.d/intel_icd.x86_64.json" ]; then
-      echo "  ✓ Intel Vulkan ICD found"
-    else
-      echo "  ⚠️  Intel Vulkan ICD missing"
-      echo "  📁 Looking in: ${pkgs.mesa.drivers}/share/vulkan/icd.d/"
-      ls -la "${pkgs.mesa.drivers}/share/vulkan/icd.d/" 2>/dev/null || echo "    Directory not found"
-    fi
-    
-    # Check Vulkan
-    if vulkaninfo --summary 2>/dev/null | grep -q "Intel"; then
-      echo "  ✓ Intel GPU detected via Vulkan"
-    else
-      echo "  ⚠️  Intel GPU not detected via Vulkan"
-    fi
-    
-    # Check OpenGL
-    if glxinfo 2>/dev/null | grep -q "Intel"; then
-      echo "  ✓ Intel GPU detected via OpenGL"
-    else
-      echo "  ⚠️  Install glxinfo: nix-shell -p glxinfo"
-    fi
     
     unset RUST_LOG
     

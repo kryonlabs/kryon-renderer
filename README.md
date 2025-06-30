@@ -101,3 +101,29 @@ raylib = ["dep:raylib"]
 wgpu = ["dep:wgpu"]
 ratatui = ["dep:ratatui"]
 ```
+
+## Development & Testing
+
+This project uses snapshot testing to ensure the visual correctness of the UI renderer. Due to the deterministic nature of terminal output, the `kryon-ratatui` backend serves as the primary target for these tests. This provides a stable and reliable way to verify rendering logic without the complexities of image comparison.
+
+### Snapshot Testing Workflow
+
+The testing process is managed by the `insta` snapshot testing library.
+
+1.  **Run the tests** for the `ratatui` backend:
+    ```bash
+    cargo test -p kryon-ratatui
+    ```
+
+2.  **Initial Failure**: The first time a new test is run, or after an intentional visual change, the test will fail. This is expected. `insta` will save the new output to a `.snap.new` file.
+
+3.  **Review Changes**: To review the new snapshot and see a diff of the changes, run:
+    ```bash
+    cargo insta review
+    ```
+
+4.  **Accept or Reject**: An interactive tool will open in your terminal.
+    - Press `a` to **a**ccept the new snapshot if the changes are correct.
+    - Press `r` to **r**eject the changes if they introduce a bug.
+
+5.  **Verify**: After accepting a snapshot, run the test again to confirm that it passes.

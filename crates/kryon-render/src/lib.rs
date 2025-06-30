@@ -102,6 +102,7 @@ pub struct ElementRenderer<R: CommandRenderer> {
     viewport_size: Vec2,
 }
 
+
 impl<R: CommandRenderer> ElementRenderer<R> {
     pub fn new(backend: R) -> Self {
         let viewport_size = backend.viewport_size();
@@ -153,6 +154,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
         layout: &LayoutResult,
         element_id: ElementId,
     ) -> RenderResult<Vec<RenderCommand>> {
+        // ... this function's content is correct and does not need to change ...
         let mut commands = Vec::new();
         let position = layout.computed_positions.get(&element_id).copied().unwrap_or(element.position);
         let size = layout.computed_sizes.get(&element_id).copied().unwrap_or(element.size);
@@ -182,7 +184,6 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                 });
             }
         }
-        // ... include other element_to_commands logic if you have it ...
         Ok(commands)
     }
     
@@ -191,7 +192,18 @@ impl<R: CommandRenderer> ElementRenderer<R> {
         self.backend.resize(new_size)
     }
     
+    // --- THIS IS THE NEW FUNCTION THAT FIXES THE ERROR ---
+    pub fn viewport_size(&self) -> Vec2 {
+        self.viewport_size
+    }
+    
+    // It's also good practice to provide access to the underlying backend
+    pub fn backend(&self) -> &R {
+        &self.backend
+    }
+
     pub fn backend_mut(&mut self) -> &mut R {
         &mut self.backend
     }
 }
+
