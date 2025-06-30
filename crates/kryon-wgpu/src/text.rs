@@ -25,6 +25,7 @@ pub struct TextureAtlas {
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
     bind_group: wgpu::BindGroup,
+    bind_group_layout: wgpu::BindGroupLayout,
     size: u32,
     cursor_x: u32,
     cursor_y: u32,
@@ -150,11 +151,15 @@ impl TextRenderer {
         
         vertices
     }
-    
+
     pub fn bind_group(&self) -> &wgpu::BindGroup {
         &self.atlas.bind_group
     }
     
+    pub fn bind_group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.atlas.bind_group_layout
+    }
+
     pub fn render_text(
         &mut self,
         _encoder: &mut wgpu::CommandEncoder,
@@ -252,6 +257,7 @@ impl TextureAtlas {
             texture,
             texture_view,
             bind_group,
+            bind_group_layout,
             size,
             cursor_x: 0,
             cursor_y: 0,

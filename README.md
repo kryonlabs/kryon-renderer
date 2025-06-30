@@ -55,18 +55,18 @@ cargo build --no-default-features --features raylib   # Raylib rendering
 ## 4. Update Usage Examples
 ```bash
 # Render with WGPU (default)
-./target/debug/kryon-render examples/hello_world.krb
+./target/debug/kryon-renderer examples/hello_world.krb
 
 # Render with terminal backend
-./target/debug/kryon-render examples/hello_world.krb --backend terminal
+./target/debug/kryon-renderer examples/hello_world.krb --backend terminal
 
 # Render with raylib backend
 ./target/debug/kryon-renderer-raylib examples/hello_world.krb
 # OR (if you want consistent naming)
-./target/debug/kryon-render examples/hello_world.krb --backend raylib
+./target/debug/kryon-renderer examples/hello_world.krb --backend raylib
 
 # Show available backends and options
-./target/debug/kryon-render --info
+./target/debug/kryon-renderer --info
 ```
 
 ## 5. Update Backend Selection Section

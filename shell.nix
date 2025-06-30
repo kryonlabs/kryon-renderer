@@ -2,12 +2,8 @@
 { pkgs ? import <nixpkgs> {} }:
 
 pkgs.mkShell {
-  # nativeBuildInputs are packages needed to *build* your code.
-  # This includes compilers, build tools, headers (.dev packages), and pkg-config files.
-  # mkShell automatically uses these to set up PKG_CONFIG_PATH and other env vars.
   nativeBuildInputs = with pkgs; [
     # 1. Rust Toolchain
-    # Provides cargo, rustc, etc. Also includes recommended tools.
     rustc
     cargo
     rust-analyzer
@@ -15,35 +11,39 @@ pkgs.mkShell {
     rustfmt
 
     # 2. Core Build Tools
-    # Essential for building C/C++ dependencies like raylib's or winit's.
     pkg-config
     cmake
     gcc
 
     # 3. Dependencies for `rust-bindgen`
-    # The raylib-sys crate uses bindgen, which needs libclang.
-    llvmPackages.libclang # Provides the libclang.so library
-    llvmPackages.bintools # Provides ld, as, etc.
+    llvmPackages.libclang
+    llvmPackages.bintools
 
     # 4. System Libraries (Development versions)
-    # The .dev output includes headers and is what build systems look for.
-    glibc.dev # Standard C library headers
+    glibc.dev
 
     # 5. Graphics & Windowing System Libraries
-    # For both WGPU (Vulkan/Wayland/X11) and Raylib (OpenGL/ALSA/X11)
 
-    # Vulkan for WGPU
+    # Vulkan for WGPU (CRITICAL)
     vulkan-loader
     vulkan-validation-layers
-    vulkan-tools # Adds the useful `vulkaninfo` command for debugging
+    vulkan-tools
+    vulkan-headers
+    spirv-tools
+    shaderc
 
-    # OpenGL Libraries (CRITICAL for raylib/GLFW)
-    libGL.dev          # OpenGL library headers
-    libglvnd.dev       # Vendor-neutral GL dispatch library (FIXES GLX ERRORS)
-    mesa.dev           # Mesa 3D graphics library
-    mesa.drivers       # Mesa drivers for software/hardware rendering
+    # OpenGL Libraries (for raylib and fallback)
+    libGL.dev
+    libglvnd.dev
+    mesa.dev
+    mesa.drivers
 
-    # X11 Libraries (needed by both winit and raylib/GLFW)
+    # Intel Graphics (CRITICAL for your GPU)
+    intel-media-driver      # Intel media driver
+    libva                   # Video acceleration
+    libva-utils             # VA-API utilities
+
+    # X11 Libraries
     xorg.libX11.dev
     xorg.libXcursor.dev
     xorg.libXrandr.dev
@@ -52,28 +52,34 @@ pkgs.mkShell {
     xorg.libXfixes.dev
     xorg.libXrender.dev
     xorg.libXext.dev
-    xorg.libXxf86vm.dev    # Required by GLFW for video mode switching
-    xorg.libXmu.dev        # X11 miscellaneous utilities
-    xorg.libXpm.dev        # X11 pixmap library
+    xorg.libXxf86vm.dev
+    xorg.libXmu.dev
+    xorg.libXpm.dev
 
-    # Wayland Libraries (needed by winit for wgpu)
+    # Wayland Libraries
     wayland.dev
-    libxkbcommon.dev       # Base xkbcommon library
-    xorg.libxkbfile.dev    # X11 xkb file handling
+    libxkbcommon.dev
+    xorg.libxkbfile.dev
 
-    # Audio (for raylib)
+    # Audio
     alsa-lib.dev
-    pulseaudio.dev     # PulseAudio support
+    pulseaudio.dev
   ];
 
-  # buildInputs are runtime libraries that need to be available
-  # when running the compiled programs
   buildInputs = with pkgs; [
+    # Runtime Vulkan (CRITICAL for WGPU)
+    vulkan-loader
+    vulkan-validation-layers
+    mesa.drivers
+
+    # Intel Graphics Runtime (CRITICAL for your Intel HD 620)
+    intel-media-driver
+    libva
+    
     # Runtime OpenGL libraries
     libGL
     libglvnd
-    mesa.drivers
-
+    
     # Runtime X11 libraries  
     xorg.libX11
     xorg.libXcursor
@@ -85,34 +91,36 @@ pkgs.mkShell {
     xorg.libXext
     xorg.libXxf86vm
 
-    # Wayland/XKB runtime (CRITICAL for WGPU)
+    # Wayland/XKB runtime
     wayland
-    libxkbcommon        # Base xkbcommon runtime - includes X11 support
-    xorg.libxkbfile     # X11 xkb file handling runtime
+    libxkbcommon
+    xorg.libxkbfile
 
     # Audio runtime
     alsa-lib
     pulseaudio
   ];
 
-  # Environment variables needed for specific tools that can't find
-  # their dependencies automatically.
-
-  # Tell the Vulkan loader where to find the validation layers.
+  # Environment variables
   VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
-
-  # Tell `rust-bindgen` exactly where to find the libclang.so file.
   LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
-
-  # Give `bindgen` extra hints to find system headers in Nix's non-standard paths.
   BINDGEN_EXTRA_CLANG_ARGS = "-I${pkgs.glibc.dev}/include -I${pkgs.gcc.cc}/lib/gcc/${pkgs.stdenv.hostPlatform.config}/${pkgs.gcc.cc.version}/include";
 
-  # OpenGL/GLX Environment Variables (CRITICAL for raylib)
-  # These tell the system where to find the OpenGL libraries
+  # LD_LIBRARY_PATH for runtime libraries
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
+    # Vulkan runtime (ESSENTIAL for WGPU)
+    pkgs.vulkan-loader
+    pkgs.mesa.drivers
+
+    # Intel graphics
+    pkgs.intel-media-driver
+    pkgs.libva
+
+    # OpenGL
     pkgs.libGL
     pkgs.libglvnd
-    pkgs.mesa.drivers
+
+    # X11 libraries
     pkgs.xorg.libX11
     pkgs.xorg.libXcursor
     pkgs.xorg.libXrandr
@@ -120,74 +128,76 @@ pkgs.mkShell {
     pkgs.xorg.libXinerama
     pkgs.xorg.libXfixes
     pkgs.xorg.libXxf86vm
+
+    # Wayland/XKB
     pkgs.wayland
-    pkgs.libxkbcommon      # CRITICAL for WGPU X11 support
-    pkgs.xorg.libxkbfile   # Additional XKB support
+    pkgs.libxkbcommon
+    pkgs.xorg.libxkbfile
+
+    # Audio
     pkgs.alsa-lib
     pkgs.pulseaudio
   ];
 
-  # Ensure mesa drivers are found
-  LIBGL_DRIVERS_PATH = "${pkgs.mesa.drivers}/lib/dri";
+  # CRITICAL: Vulkan ICD files for Intel (FIXED PATH)
+  VK_ICD_FILENAMES = "${pkgs.mesa.drivers}/share/vulkan/icd.d/intel_icd.x86_64.json";
   
-  # Help GLFW find the right display
-  DISPLAY = ":0"; # Default X11 display (adjust if needed)
+  # Alternative: Let Vulkan find all drivers automatically
+  # VK_DRIVER_FILES = "${pkgs.mesa.drivers}/share/vulkan/icd.d/intel_icd.x86_64.json";
+  
+  # Mesa driver paths
+  LIBGL_DRIVERS_PATH = "${pkgs.mesa.drivers}/lib/dri";
+  LIBVA_DRIVERS_PATH = "${pkgs.intel-media-driver}/lib/dri";
+  
+  # Force Intel graphics
+  MESA_LOADER_DRIVER_OVERRIDE = "i965";  # or "iris" for newer Intel
+  
+  # Help with display
+  DISPLAY = ":0";
 
-  # The shellHook runs commands every time you enter the shell.
+  # WGPU specific debugging (CRITICAL)
+  WGPU_BACKEND = "vulkan";  # Force Vulkan backend
+  WGPU_POWER_PREF = "low";  # Prefer integrated GPU
+
   shellHook = ''
-    # Add a welcome message
-    echo "Kryon Renderer development environment is ready."
-    echo "  - Rust, WGPU, and Raylib dependencies are loaded."
-    echo "  - OpenGL/GLX libraries configured for raylib."
-    echo "  - XKB libraries configured for WGPU."
-    echo "  - For Vulkan diagnostics, run: vulkaninfo"
+    echo "Kryon Renderer development environment ready (Intel HD Graphics 620 optimized)"
     
-    # Check if we're in a graphical environment
-    if [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
-      echo ""
-      echo "⚠️  WARNING: No display detected. You may need to:"
-      echo "   - Run 'export DISPLAY=:0' for X11"
-      echo "   - Or run from a graphical terminal"
-    fi
-    
-    # Test OpenGL availability
-    if command -v glxinfo >/dev/null 2>&1; then
-      echo ""
-      echo "OpenGL Status:"
-      glxinfo | grep "OpenGL version" || echo "  - Could not detect OpenGL version"
-    else
-      echo ""
-      echo "💡 Install glxinfo for OpenGL diagnostics: nix-shell -p glxinfo"
-    fi
-    
-    # Test XKB availability for WGPU
+    # Check environment
     echo ""
-    echo "XKB Libraries:"
-    if [ -f "${pkgs.libxkbcommon}/lib/libxkbcommon.so" ]; then
-      echo "  ✓ libxkbcommon.so found"
+    echo "🔍 Graphics Environment:"
+    
+    # Check ICD files
+    if [ -f "${pkgs.mesa.drivers}/share/vulkan/icd.d/intel_icd.x86_64.json" ]; then
+      echo "  ✓ Intel Vulkan ICD found"
     else
-      echo "  ✗ libxkbcommon.so missing"
-    fi
-    if [ -f "${pkgs.libxkbcommon}/lib/libxkbcommon-x11.so" ]; then
-      echo "  ✓ libxkbcommon-x11.so found"
-    else
-      echo "  ✗ libxkbcommon-x11.so missing"
+      echo "  ⚠️  Intel Vulkan ICD missing"
+      echo "  📁 Looking in: ${pkgs.mesa.drivers}/share/vulkan/icd.d/"
+      ls -la "${pkgs.mesa.drivers}/share/vulkan/icd.d/" 2>/dev/null || echo "    Directory not found"
     fi
     
-    # Unset RUST_LOG to prevent spam from wgpu/naga in the shell.
-    # If you need to debug wgpu, you can set it manually:
-    #   export RUST_LOG=wgpu=debug
+    # Check Vulkan
+    if vulkaninfo --summary 2>/dev/null | grep -q "Intel"; then
+      echo "  ✓ Intel GPU detected via Vulkan"
+    else
+      echo "  ⚠️  Intel GPU not detected via Vulkan"
+    fi
+    
+    # Check OpenGL
+    if glxinfo 2>/dev/null | grep -q "Intel"; then
+      echo "  ✓ Intel GPU detected via OpenGL"
+    else
+      echo "  ⚠️  Install glxinfo: nix-shell -p glxinfo"
+    fi
+    
     unset RUST_LOG
     
     echo ""
-    echo "Available binaries:"
-    echo "  cargo run --bin kryon-renderer-raylib --features raylib examples/hello_world.krb"
-    echo "  cargo run --bin kryon-renderer-wgpu --features wgpu examples/hello_world.krb"
-    echo "  cargo run --bin kryon-renderer-ratatui --features ratatui examples/hello_world.krb"
-    echo "  cargo run examples/hello_world.krb  # Uses default backend (WGPU)"
+    echo "🚀 Test commands:"
+    echo "  # Debug WGPU adapter detection:"
+    echo "  RUST_LOG=wgpu=debug cargo run --bin kryon-renderer-wgpu --features wgpu examples/hello_world.krb"
     echo ""
-    echo "Quick tests:"
+    echo "  # Other backends:"
     echo "  cargo run --bin kryon-renderer-raylib --features raylib examples/hello_world.krb"
-    echo "  cargo run examples/hello_world.krb"
+    echo "  cargo run --bin kryon-renderer-ratatui --features ratatui examples/hello_world.krb"
   '';
 }

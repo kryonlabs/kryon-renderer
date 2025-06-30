@@ -26,7 +26,6 @@ Cargo.lock
 Thumbs.db
 ehthumbs.db
 Desktop.ini
-$RECYCLE.BIN/
 
 # Logs
 *.log
@@ -249,7 +248,6 @@ vgcore.*
 # Eclipse
 .project
 .metadata
-bin/
 tmp/
 *.tmp
 *.bak
@@ -324,3 +322,5 @@ tramp
 
 # Atom
 .atom/
+
+crates/kryon-ratatui/src/snapshots/

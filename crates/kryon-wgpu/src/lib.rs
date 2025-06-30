@@ -4,6 +4,7 @@ use kryon_render::{
 };
 use kryon_layout::LayoutResult;
 use glam::{Vec2, Vec4, Mat4};
+use winit::window::Window;
 
 pub mod shaders;
 pub mod vertex;
@@ -46,7 +47,7 @@ pub struct WgpuRenderContext {
 }
 
 impl Renderer for WgpuRenderer {
-    type Surface = (wgpu::Surface<'static>, Vec2);
+    type Surface = (std::sync::Arc<Window>, Vec2);
     type Context = WgpuRenderContext;
     
     fn initialize(surface: Self::Surface) -> RenderResult<Self> where Self: Sized {
@@ -145,21 +146,74 @@ impl CommandRenderer for WgpuRenderer {
 }
 
 impl WgpuRenderer {
-    async fn new_async(surface: wgpu::Surface<'static>, size: Vec2) -> RenderResult<Self> {
+
+    async fn new_async(window: std::sync::Arc<Window>, size: Vec2) -> RenderResult<Self> {
+        println!("Creating WGPU instance...");
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
+            flags: wgpu::InstanceFlags::DEBUG,
             ..Default::default()
         });
-        
+
+        // The surface is now created *inside* the renderer from the window handle.
+        // This resolves the type mismatch and the original ownership panic.
+        let surface = instance.create_surface(window)
+            .map_err(|e| RenderError::InitializationFailed(format!("Failed to create surface: {}", e)))?;
+
+        // Debug: Enumerate all adapters first
+        println!("Enumerating all adapters...");
+        let adapters: Vec<_> = instance.enumerate_adapters(wgpu::Backends::all()).into_iter().collect();
+        println!("Found {} total adapters:", adapters.len());
+        for (i, adapter) in adapters.iter().enumerate() {
+            let info = adapter.get_info();
+            println!("  Adapter {}: {} ({:?}) - {:?}", i, info.name, info.backend, info.device_type);
+        }
+
+        if adapters.is_empty() {
+            return Err(RenderError::InitializationFailed("No adapters enumerated by WGPU".to_string()));
+        }
+
+        println!("Requesting adapter with surface compatibility...");
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
-            .await
-            .ok_or_else(|| RenderError::InitializationFailed("No adapter found".to_string()))?;
-        
+            .await;
+
+        let adapter = match adapter {
+            Some(adapter) => {
+                let info = adapter.get_info();
+                println!("SUCCESS: Found compatible adapter: {} ({:?})", info.name, info.backend);
+                adapter
+            }
+            None => {
+                println!("ERROR: No surface-compatible adapter found!");
+
+                // Try without surface compatibility as fallback
+                println!("Trying without surface compatibility...");
+                let fallback_adapter = instance
+                    .request_adapter(&wgpu::RequestAdapterOptions {
+                        power_preference: wgpu::PowerPreference::default(),
+                        compatible_surface: None,
+                        force_fallback_adapter: false,
+                    })
+                    .await;
+
+                match fallback_adapter {
+                    Some(adapter) => {
+                        let info = adapter.get_info();
+                        println!("FALLBACK: Using adapter without surface check: {} ({:?})", info.name, info.backend);
+                        adapter
+                    }
+                    None => {
+                        return Err(RenderError::InitializationFailed("No adapter found even without surface compatibility".to_string()));
+                    }
+                }
+            }
+        };
+
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
@@ -171,7 +225,7 @@ impl WgpuRenderer {
             )
             .await
             .map_err(|e| RenderError::InitializationFailed(format!("Device request failed: {}", e)))?;
-        
+
         let surface_caps = surface.get_capabilities(&adapter);
         let surface_format = surface_caps
             .formats
@@ -179,7 +233,7 @@ impl WgpuRenderer {
             .copied()
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
-        
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
@@ -190,9 +244,9 @@ impl WgpuRenderer {
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
-        
+
         surface.configure(&device, &config);
-        
+
         // Create uniform buffer for view-projection matrix
         let view_proj_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("View Projection Buffer"),
@@ -200,7 +254,7 @@ impl WgpuRenderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        
+
         let uniform_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -214,7 +268,7 @@ impl WgpuRenderer {
             }],
             label: Some("uniform_bind_group_layout"),
         });
-        
+
         let view_proj_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &uniform_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
@@ -223,25 +277,67 @@ impl WgpuRenderer {
             }],
             label: Some("view_proj_bind_group"),
         });
-        
+
         // Create shaders
         let rect_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Rectangle Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/rect.wgsl").into()),
         });
-        
+
         let text_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Text Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/text.wgsl").into()),
         });
-        
+
+        // Create text rendering pipeline
+        let text_renderer = TextRenderer::new(&device, &queue)
+            .map_err(|e| RenderError::InitializationFailed(format!("Text renderer creation failed: {}", e)))?;
+
+        // The text pipeline needs the bind group layout from the text atlas
+        let text_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Text Pipeline Layout"),
+            bind_group_layouts: &[&uniform_bind_group_layout, text_renderer.bind_group_layout()],
+            push_constant_ranges: &[],
+        });
+
+        let text_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Text Pipeline"),
+            layout: Some(&text_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &text_shader,
+                entry_point: "vs_main",
+                buffers: &[TextVertex::desc()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &text_shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None, // Text can have different winding orders
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
+
         // Create rectangle rendering pipeline
         let rect_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Rectangle Pipeline Layout"),
             bind_group_layouts: &[&uniform_bind_group_layout],
             push_constant_ranges: &[],
         });
-        
+
         let rect_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Rectangle Pipeline"),
             layout: Some(&rect_pipeline_layout),
@@ -269,53 +365,7 @@ impl WgpuRenderer {
                 conservative: false,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-        });
-        
-        // Create text rendering pipeline (similar setup)
-        let text_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Text Pipeline Layout"),
-            bind_group_layouts: &[&uniform_bind_group_layout],
-            push_constant_ranges: &[],
-        });
-        
-        let text_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Text Pipeline"),
-            layout: Some(&text_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &text_shader,
-                entry_point: "vs_main",
-                buffers: &[TextVertex::desc()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &text_shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
+            multisample: wgpu::MultisampleState::default(),
             multiview: None,
         });
         
@@ -333,11 +383,7 @@ impl WgpuRenderer {
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        
-        // Initialize text renderer
-        let text_renderer = TextRenderer::new(&device, &queue)
-            .map_err(|e| RenderError::InitializationFailed(format!("Text renderer creation failed: {}", e)))?;
-        
+
         let mut renderer = Self {
             surface,
             device,
@@ -353,9 +399,9 @@ impl WgpuRenderer {
             vertex_buffer,
             index_buffer,
         };
-        
+
         renderer.update_view_projection()?;
-        
+
         Ok(renderer)
     }
     
