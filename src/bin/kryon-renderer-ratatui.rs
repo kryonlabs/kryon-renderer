@@ -14,11 +14,10 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::prelude::{CrosstermBackend, Rect};
+use ratatui::prelude::CrosstermBackend;
 use ratatui::Terminal;
 
 // Kryon imports
-use kryon_core::{load_krb_file, KRBFile};
 use kryon_render::{InputEvent, Renderer};
 use kryon_ratatui::RatatuiRenderer;
 use kryon_runtime::KryonApp;
