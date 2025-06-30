@@ -1,8 +1,10 @@
 // crates/kryon-core/src/elements.rs
 use glam::{Vec2, Vec4};
 use std::collections::HashMap;
+use crate::PropertyValue;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum ElementType {
     App = 0x00,
     Container = 0x01,
@@ -110,7 +112,7 @@ pub enum CursorType {
     NotAllowed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EventType {
     Click,
     Hover,

@@ -1,10 +1,9 @@
 // crates/kryon-wgpu/src/lib.rs
 use kryon_render::{
-    Renderer, CommandRenderer, RenderCommand, RenderResult, RenderError, TextAlignment
+    Renderer, CommandRenderer, RenderCommand, RenderResult, RenderError
 };
-use wgpu::util::DeviceExt;
+use kryon_layout::LayoutResult;
 use glam::{Vec2, Vec4, Mat4};
-use std::collections::HashMap;
 
 pub mod shaders;
 pub mod vertex;
@@ -12,8 +11,8 @@ pub mod text;
 pub mod resources;
 
 use vertex::*;
-use text::*;
-use resources::*;
+use text::TextRenderer;
+use resources::ResourceManager;
 
 pub struct WgpuRenderer {
     surface: wgpu::Surface<'static>,
@@ -34,7 +33,7 @@ pub struct WgpuRenderer {
     text_renderer: TextRenderer,
     
     // Resource management
-    texture_cache: HashMap<String, wgpu::Texture>,
+    resource_manager: ResourceManager,
     
     // Vertex buffers (reusable)
     vertex_buffer: wgpu::Buffer,
@@ -54,7 +53,7 @@ impl Renderer for WgpuRenderer {
         pollster::block_on(Self::new_async(surface.0, surface.1))
     }
     
-    fn begin_frame(&mut self, clear_color: Vec4) -> RenderResult<Self::Context> {
+    fn begin_frame(&mut self, _clear_color: Vec4) -> RenderResult<Self::Context> {
         let output = self.surface
             .get_current_texture()
             .map_err(|e| RenderError::RenderFailed(format!("Failed to get surface texture: {}", e)))?;
@@ -68,17 +67,17 @@ impl Renderer for WgpuRenderer {
         Ok(WgpuRenderContext { encoder, view })
     }
     
-    fn end_frame(&mut self, mut context: Self::Context) -> RenderResult<()> {
+    fn end_frame(&mut self, context: Self::Context) -> RenderResult<()> {
         self.queue.submit(std::iter::once(context.encoder.finish()));
         Ok(())
     }
     
     fn render_element(
         &mut self,
-        context: &mut Self::Context,
-        element: &kryon_core::Element,
-        layout: &kryon_layout::LayoutResult,
-        element_id: kryon_core::ElementId,
+        _context: &mut Self::Context,
+        _element: &kryon_core::Element,
+        _layout: &LayoutResult,
+        _element_id: kryon_core::ElementId,
     ) -> RenderResult<()> {
         // This method is not used in command-based rendering
         Ok(())
@@ -336,7 +335,8 @@ impl WgpuRenderer {
         });
         
         // Initialize text renderer
-        let text_renderer = TextRenderer::new(&device, &queue)?;
+        let text_renderer = TextRenderer::new(&device, &queue)
+            .map_err(|e| RenderError::InitializationFailed(format!("Text renderer creation failed: {}", e)))?;
         
         let mut renderer = Self {
             surface,
@@ -349,7 +349,7 @@ impl WgpuRenderer {
             view_proj_buffer,
             view_proj_bind_group,
             text_renderer,
-            texture_cache: HashMap::new(),
+            resource_manager: ResourceManager::new(),
             vertex_buffer,
             index_buffer,
         };
@@ -495,7 +495,7 @@ impl WgpuRenderer {
                     *color,
                     *alignment,
                     *max_width,
-                )?;
+                ).map_err(|e| RenderError::RenderFailed(format!("Text rendering failed: {}", e)))?;
             }
         }
         Ok(())

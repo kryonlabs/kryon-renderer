@@ -1,5 +1,5 @@
 // crates/kryon-render/src/lib.rs
-use kryon_core::{Element, ElementId, ElementType, InteractionState};
+use kryon_core::{Element, ElementId, ElementType, TextAlignment};
 use kryon_layout::LayoutResult;
 use glam::{Vec2, Vec4};
 use std::collections::HashMap;
@@ -218,7 +218,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                         text: element.text.clone(),
                         font_size: element.font_size,
                         color: text_color,
-                        alignment: element.text_alignment.into(),
+                        alignment: element.text_alignment,
                         max_width: Some(size.x - 8.0),
                     });
                 }

@@ -8,6 +8,8 @@ pub mod events;
 pub use elements::*;
 pub use properties::*;
 pub use krb::*;
+pub use resources::*;
+pub use events::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum KryonError {

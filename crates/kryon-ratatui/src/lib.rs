@@ -1,20 +1,20 @@
 // crates/kryon-ratatui/src/lib.rs
 use kryon_render::{
-    Renderer, CommandRenderer, RenderCommand, RenderResult, RenderError, TextAlignment
+    Renderer, CommandRenderer, RenderCommand, RenderResult, RenderError
 };
+use kryon_core::TextAlignment;
+use kryon_layout::LayoutResult;
 use ratatui::{
     backend::Backend,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Rect},
     style::{Color, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Clear, Paragraph},
     Frame,
 };
 use glam::{Vec2, Vec4};
-use std::io::Write;
 
 pub struct RatatuiRenderer<B: Backend> {
-    backend: B,
+    backend: Option<B>,
     size: Vec2,
     commands: Vec<RenderCommand>,
 }
@@ -30,7 +30,7 @@ impl<B: Backend> Renderer for RatatuiRenderer<B> {
     fn initialize(backend: Self::Surface) -> RenderResult<Self> where Self: Sized {
         let size = Vec2::new(80.0, 24.0); // Default terminal size
         Ok(Self {
-            backend,
+            backend: Some(backend),
             size,
             commands: Vec::new(),
         })
@@ -43,13 +43,18 @@ impl<B: Backend> Renderer for RatatuiRenderer<B> {
     
     fn end_frame(&mut self, _context: Self::Context) -> RenderResult<()> {
         // Render all collected commands to the terminal
-        let mut terminal = ratatui::Terminal::new(&mut self.backend)
+        let backend = self.backend.take().ok_or_else(|| RenderError::RenderFailed("Backend not available".to_string()))?;
+        let mut terminal = ratatui::Terminal::new(backend)
             .map_err(|e| RenderError::RenderFailed(format!("Terminal creation failed: {}", e)))?;
         
+        let commands = self.commands.clone();
+        let size = self.size;
         terminal.draw(|frame| {
-            self.render_commands_to_frame(frame);
+            Self::render_commands_to_frame_static(&commands, frame, size);
         }).map_err(|e| RenderError::RenderFailed(format!("Render failed: {}", e)))?;
         
+        // Note: ratatui doesn't provide into_backend(), so we drop the terminal
+        // This is okay for single frame rendering but not ideal for reuse
         Ok(())
     }
     
@@ -57,7 +62,7 @@ impl<B: Backend> Renderer for RatatuiRenderer<B> {
         &mut self,
         _context: &mut Self::Context,
         _element: &kryon_core::Element,
-        _layout: &kryon_layout::LayoutResult,
+        _layout: &LayoutResult,
         _element_id: kryon_core::ElementId,
     ) -> RenderResult<()> {
         Ok(())
@@ -86,6 +91,54 @@ impl<B: Backend> CommandRenderer for RatatuiRenderer<B> {
 }
 
 impl<B: Backend> RatatuiRenderer<B> {
+    fn render_commands_to_frame_static(commands: &[RenderCommand], frame: &mut Frame, viewport_size: Vec2) {
+        let size = frame.size();
+        
+        // Convert pixel coordinates to terminal cells
+        let cols = size.width as f32;
+        let rows = size.height as f32;
+        
+        for command in commands {
+            match command {
+                RenderCommand::DrawRect { position, size, color, .. } => {
+                    let x = (position.x / viewport_size.x * cols) as u16;
+                    let y = (position.y / viewport_size.y * rows) as u16;
+                    let w = (size.x / viewport_size.x * cols) as u16;
+                    let h = (size.y / viewport_size.y * rows) as u16;
+                    
+                    let rect = Rect::new(x, y, w, h);
+                    let block = Block::default()
+                        .style(Style::default().bg(vec4_to_ratatui_color(*color)));
+                    
+                    frame.render_widget(Clear, rect);
+                    frame.render_widget(block, rect);
+                }
+                RenderCommand::DrawText { position, text, color, alignment, .. } => {
+                    let x = (position.x / viewport_size.x * cols) as u16;
+                    let y = (position.y / viewport_size.y * rows) as u16;
+                    
+                    let rect = Rect::new(x, y, cols as u16 - x, 1);
+                    
+                    let ratatui_alignment = match alignment {
+                        TextAlignment::Start => Alignment::Left,
+                        TextAlignment::Center => Alignment::Center,
+                        TextAlignment::End => Alignment::Right,
+                        TextAlignment::Justify => Alignment::Left, // No justify in ratatui
+                    };
+                    
+                    let paragraph = Paragraph::new(text.as_str())
+                        .style(Style::default().fg(vec4_to_ratatui_color(*color)))
+                        .alignment(ratatui_alignment);
+                    
+                    frame.render_widget(paragraph, rect);
+                }
+                _ => {
+                    // Other commands not implemented for terminal
+                }
+            }
+        }
+    }
+    
     fn render_commands_to_frame(&self, frame: &mut Frame) {
         let size = frame.size();
         

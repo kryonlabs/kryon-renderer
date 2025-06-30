@@ -1,4 +1,15 @@
-# kryon-renderer/Cargo.toml
+[package]
+name = "kryon-renderer"
+version = "0.1.0"
+edition = "2021"
+authors = ["Kryon Labs"]
+description = "Standalone renderer for Kryon Binary (.krb) files"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "kryon-render"
+path = "src/main.rs"
+
 [workspace]
 members = [
     "crates/kryon-core",
@@ -8,6 +19,37 @@ members = [
     "crates/kryon-ratatui",
     "crates/kryon-runtime"
 ]
+
+[dependencies]
+# Core crates
+kryon-core = { path = "crates/kryon-core" }
+kryon-runtime = { path = "crates/kryon-runtime" }
+kryon-render = { path = "crates/kryon-render" }
+
+# Optional backend crates
+kryon-wgpu = { path = "crates/kryon-wgpu", optional = true }
+kryon-ratatui = { path = "crates/kryon-ratatui", optional = true }
+
+# CLI and utilities
+clap = { version = "4.0", features = ["derive"] }
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+glam = "0.25"
+
+# WGPU backend dependencies (optional)
+wgpu = { version = "0.19", optional = true }
+winit = { version = "0.29", optional = true }
+pollster = { version = "0.3", optional = true }
+
+# Terminal backend dependencies (optional)
+ratatui = { version = "0.26", optional = true }
+crossterm = { version = "0.27", optional = true }
+
+[features]
+default = ["wgpu", "ratatui"]
+wgpu = ["dep:kryon-wgpu", "dep:wgpu", "dep:winit", "dep:pollster"]
+ratatui = ["dep:kryon-ratatui", "dep:ratatui", "dep:crossterm"]
 
 [workspace.dependencies]
 # Common dependencies

@@ -14,7 +14,6 @@ pub use backends::*;
 pub use event_system::*;
 pub use script_system::*;
 
-#[derive(Debug)]
 pub struct KryonApp<R: CommandRenderer> {
     // Core data
     krb_file: KRBFile,
@@ -78,7 +77,7 @@ impl<R: CommandRenderer> KryonApp<R> {
     
     fn link_element_hierarchy(
         elements: &mut HashMap<ElementId, Element>,
-        krb_file: &KRBFile,
+        _krb_file: &KRBFile,
     ) -> anyhow::Result<()> {
         // Build parent-child relationships from the parsed data
         // This is a simplified version - in a real implementation,

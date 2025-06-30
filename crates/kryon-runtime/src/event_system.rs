@@ -3,6 +3,7 @@ use kryon_core::{Element, ElementId};
 use std::collections::HashMap;
 use anyhow::Result;
 
+#[derive(Debug)]
 pub struct EventSystem {
     event_queue: Vec<UIEvent>,
 }
@@ -28,7 +29,8 @@ impl EventSystem {
     
     pub fn update(&mut self, elements: &mut HashMap<ElementId, Element>) -> Result<()> {
         // Process all queued events
-        for event in self.event_queue.drain(..) {
+        let events: Vec<_> = self.event_queue.drain(..).collect();
+        for event in events {
             self.process_event(event, elements)?;
         }
         Ok(())

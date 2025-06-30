@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use anyhow::Result;
 
+#[derive(Debug)]
 pub struct ScriptSystem {
     scripts: Vec<ScriptEntry>,
     state: HashMap<String, PropertyValue>,

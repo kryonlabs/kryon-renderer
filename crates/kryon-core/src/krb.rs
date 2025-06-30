@@ -26,7 +26,7 @@ pub struct KRBHeader {
     pub resource_count: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ScriptEntry {
     pub language: String,
     pub name: String,
@@ -85,19 +85,19 @@ impl KRBParser {
         
         Ok(KRBHeader {
             magic,
-            version: self.read_u16(4),
-            flags: self.read_u16(6),
-            element_count: self.read_u16(8),
-            style_count: self.read_u16(10),
-            component_count: self.read_u16(12),
-            script_count: self.read_u16(16),
-            string_count: self.read_u16(18),
-            resource_count: self.read_u16(20),
+            version: self.read_u16_at(4),
+            flags: self.read_u16_at(6),
+            element_count: self.read_u16_at(8),
+            style_count: self.read_u16_at(10),
+            component_count: self.read_u16_at(12),
+            script_count: self.read_u16_at(16),
+            string_count: self.read_u16_at(18),
+            resource_count: self.read_u16_at(20),
         })
     }
     
     fn parse_string_table(&mut self, header: &KRBHeader) -> Result<Vec<String>> {
-        let string_offset = self.read_u32(42) as usize;
+        let string_offset = self.read_u32_at(42) as usize;
         let mut strings = Vec::new();
         
         self.position = string_offset;
@@ -114,7 +114,7 @@ impl KRBParser {
     }
     
     fn parse_element_tree(&mut self, header: &KRBHeader, strings: &[String]) -> Result<HashMap<u32, Element>> {
-        let element_offset = self.read_u32(22) as usize;
+        let element_offset = self.read_u32_at(22) as usize;
         let mut elements = HashMap::new();
         
         self.position = element_offset;
@@ -252,7 +252,7 @@ impl KRBParser {
     }
     
     fn parse_resource_table(&mut self, header: &KRBHeader) -> Result<Vec<String>> {
-        let resource_offset = self.read_u32(46) as usize;
+        let resource_offset = self.read_u32_at(46) as usize;
         let mut resources = Vec::new();
         
         self.position = resource_offset;
@@ -269,7 +269,7 @@ impl KRBParser {
     }
     
     fn parse_script_table(&mut self, header: &KRBHeader, strings: &[String]) -> Result<Vec<ScriptEntry>> {
-        let script_offset = self.read_u32(38) as usize;
+        let script_offset = self.read_u32_at(38) as usize;
         let mut scripts = Vec::new();
         
         self.position = script_offset;
@@ -334,11 +334,28 @@ impl KRBParser {
         value
     }
     
-    fn read_u16(&self, offset: usize) -> u16 {
+    fn read_u16(&mut self) -> u16 {
+        let value = u16::from_le_bytes([self.data[self.position], self.data[self.position + 1]]);
+        self.position += 2;
+        value
+    }
+    
+    fn read_u16_at(&self, offset: usize) -> u16 {
         u16::from_le_bytes([self.data[offset], self.data[offset + 1]])
     }
     
-    fn read_u32(&self, offset: usize) -> u32 {
+    fn read_u32(&mut self) -> u32 {
+        let value = u32::from_le_bytes([
+            self.data[self.position],
+            self.data[self.position + 1],
+            self.data[self.position + 2],
+            self.data[self.position + 3],
+        ]);
+        self.position += 4;
+        value
+    }
+    
+    fn read_u32_at(&self, offset: usize) -> u32 {
         u32::from_le_bytes([
             self.data[offset],
             self.data[offset + 1],

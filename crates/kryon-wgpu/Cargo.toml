@@ -7,6 +7,7 @@ edition = "2021"
 [dependencies]
 kryon-core = { path = "../kryon-core" }
 kryon-render = { path = "../kryon-render" }
+kryon-layout = { path = "../kryon-layout" }
 wgpu = { workspace = true }
 winit = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }

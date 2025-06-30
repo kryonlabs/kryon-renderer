@@ -105,12 +105,3 @@ cargo build --features ratatui
 chmod +x build.sh
 ./build.sh
 ***
-
-## Examples
-
-- `basic-wgpu/`: Complete WGPU application with window management
-- `terminal-ui/`: Terminal-based UI with ratatui backend
-
-## License
-
-MIT License
