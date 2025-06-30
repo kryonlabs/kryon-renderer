@@ -288,4 +288,12 @@ impl<R: CommandRenderer> ElementRenderer<R> {
     pub fn viewport_size(&self) -> Vec2 {
         self.viewport_size
     }
+    
+    pub fn backend(&self) -> &R {
+        &self.backend
+    }
+    
+    pub fn backend_mut(&mut self) -> &mut R {
+        &mut self.backend
+    }
 }

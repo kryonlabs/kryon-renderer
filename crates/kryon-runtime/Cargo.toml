@@ -10,6 +10,7 @@ kryon-layout = { path = "../kryon-layout" }
 kryon-render = { path = "../kryon-render" }
 kryon-wgpu = { path = "../kryon-wgpu", optional = true }
 kryon-ratatui = { path = "../kryon-ratatui", optional = true }
+kryon-raylib = { path = "../kryon-raylib", optional = true }
 
 winit = { workspace = true }
 glam = { workspace = true }
@@ -21,3 +22,4 @@ pollster = { workspace = true }
 default = ["wgpu"]
 wgpu = ["dep:kryon-wgpu"]
 ratatui = ["dep:kryon-ratatui"]
+raylib = ["dep:kryon-raylib"]

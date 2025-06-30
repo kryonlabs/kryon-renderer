@@ -51,7 +51,7 @@ impl KRBParser {
             return Err(KryonError::InvalidKRB("Invalid magic number".to_string()));
         }
         
-        if header.version > 0x0005 {
+        if header.version > 0x0500 {
             return Err(KryonError::UnsupportedVersion(header.version));
         }
         
@@ -166,8 +166,9 @@ impl KRBParser {
             self.parse_custom_property(&mut element, strings)?;
         }
         
-        // Store child count for later linking
-        element.children = vec![0; child_count as usize]; // Placeholder
+        // TODO: Parse actual child IDs from KRB format
+        // For now, just reserve the space but don't create circular references
+        element.children = Vec::with_capacity(child_count as usize);
         
         Ok(element)
     }

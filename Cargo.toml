@@ -7,12 +7,23 @@ description = "Standalone renderer for Kryon Binary (.krb) files"
 license = "MIT OR Apache-2.0"
 
 [[bin]]
-name = "kryon-render"
-path = "src/main.rs"
+name = "kryon-renderer"
+path = "src/bin/kryon-renderer.rs"
 
 [[bin]]
-name = "kryon-render-terminal"
-path = "src/bin/kryon-render-terminal.rs"
+name = "kryon-renderer-wgpu"
+path = "src/bin/kryon-renderer-wgpu.rs"
+required-features = ["wgpu"]
+
+[[bin]]
+name = "kryon-renderer-ratatui"
+path = "src/bin/kryon-renderer-ratatui.rs"
+required-features = ["ratatui"]
+
+[[bin]]
+name = "kryon-renderer-raylib"
+path = "src/bin/kryon-renderer-raylib.rs"
+required-features = ["raylib"]
 
 
 [workspace]
@@ -22,6 +33,7 @@ members = [
     "crates/kryon-render",
     "crates/kryon-wgpu",
     "crates/kryon-ratatui",
+    "crates/kryon-raylib",
     "crates/kryon-runtime"
 ]
 
@@ -34,6 +46,7 @@ kryon-render = { path = "crates/kryon-render" }
 # Optional backend crates
 kryon-wgpu = { path = "crates/kryon-wgpu", optional = true }
 kryon-ratatui = { path = "crates/kryon-ratatui", optional = true }
+kryon-raylib = { path = "crates/kryon-raylib", optional = true }
 
 # CLI and utilities
 clap = { version = "4.0", features = ["derive"] }
@@ -51,10 +64,14 @@ pollster = { version = "0.3", optional = true }
 ratatui = { version = "0.26", optional = true }
 crossterm = { version = "0.27", optional = true }
 
+# Raylib backend dependencies (optional)
+raylib = { version = "5.0", optional = true }
+
 [features]
 default = ["wgpu", "ratatui"]
-wgpu = ["dep:kryon-wgpu", "dep:wgpu", "dep:winit", "dep:pollster"]
-ratatui = ["dep:kryon-ratatui", "dep:ratatui", "dep:crossterm"]
+wgpu = ["dep:kryon-wgpu", "dep:wgpu", "dep:winit", "dep:pollster", "kryon-runtime/wgpu"]
+ratatui = ["dep:kryon-ratatui", "dep:ratatui", "dep:crossterm", "kryon-runtime/ratatui"]
+raylib = ["dep:kryon-raylib", "dep:raylib", "kryon-runtime/raylib"]
 
 [workspace.dependencies]
 # Common dependencies

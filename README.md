@@ -1,10 +1,9 @@
-# Kryon Renderer
+# Changes Needed for kryon-renderer README
 
-A modular Rust renderer for the Kryon UI framework with pluggable rendering backends.
+## 1. Update the Architecture Diagram
+Replace the existing diagram section with:
 
-## Architecture
-
-***
+```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   kryon-core    │    │  kryon-layout   │    │  kryon-render   │
 │                 │    │                 │    │                 │
@@ -24,84 +23,81 @@ A modular Rust renderer for the Kryon UI framework with pluggable rendering back
               │ • Backend Selection            │
               └─────────────────────────────────┘
                                  │
-                    ┌────────────┴────────────┐
-                    │                         │
-         ┌─────────────────┐       ┌─────────────────┐
-         │   kryon-wgpu    │       │ kryon-ratatui   │
-         │                 │       │                 │
-         │ • GPU Rendering │       │ • Terminal UI   │
-         │ • Cross-platform│       │ • Text Mode     │
-         │ • High Performance      │ • ASCII Graphics│
-         └─────────────────┘       └─────────────────┘
-***
+                    ┌────────────┼────────────┐
+                    │            │            │
+         ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+         │   kryon-wgpu    │  │ kryon-ratatui   │  │  kryon-raylib   │
+         │                 │  │                 │  │                 │
+         │ • GPU Rendering │  │ • Terminal UI   │  │ • 2D/3D Graphics│
+         │ • Cross-platform│  │ • Text Mode     │  │ • Game-focused  │
+         │ • High Performance  │ • ASCII Graphics│  │ • Easy Setup    │
+         └─────────────────┘  └─────────────────┘  └─────────────────┘
+```
 
-## Features
+## 2. Update Features Section
+Add raylib to the backend list:
 
-- **Modular Backend System**: Easy to switch between rendering backends
 - **WGPU Backend**: High-performance GPU rendering for desktop/mobile/web
 - **Ratatui Backend**: Terminal-based UI for CLI applications
-- **Flexbox Layout**: Modern layout engine with flexible box model
-- **Script Integration**: Support for Lua, JavaScript, Python, and Wren
-- **Component System**: Reusable UI components with properties
-- **Event System**: Mouse, keyboard, and custom event handling
+- **Raylib Backend**: Simple 2D/3D graphics for games and multimedia apps
 
-## Quick Start
+## 3. Update Building Instructions
+```bash
+# Build all backends
+cargo build
 
-### WGPU (GPU) Rendering
+# Build specific backend only
+cargo build --no-default-features --features wgpu     # GPU rendering
+cargo build --no-default-features --features ratatui  # Terminal rendering
+cargo build --no-default-features --features raylib   # Raylib rendering
+```
 
-***bash
-cargo run --manifest-path examples/basic-wgpu/Cargo.toml
-***
+## 4. Update Usage Examples
+```bash
+# Render with WGPU (default)
+./target/debug/kryon-render examples/hello_world.krb
 
-### Terminal (Ratatui) Rendering
+# Render with terminal backend
+./target/debug/kryon-render examples/hello_world.krb --backend terminal
 
-***bash
-cargo run --manifest-path examples/terminal-ui/Cargo.toml
-***
+# Render with raylib backend
+./target/debug/kryon-renderer-raylib examples/hello_world.krb
+# OR (if you want consistent naming)
+./target/debug/kryon-render examples/hello_world.krb --backend raylib
 
-## Usage
+# Show available backends and options
+./target/debug/kryon-render --info
+```
 
-***rust
-use kryon_runtime::{KryonApp, WgpuRenderer};
-
-// Create renderer
-let renderer = WgpuRenderer::initialize(surface)?;
-
-// Load app from KRB file
-let mut app = KryonApp::new("path/to/app.krb", renderer)?;
-
-// Game loop
-loop {
-    app.update(delta_time)?;
-    app.render()?;
-}
-***
-
-## Backend Selection
-
+## 5. Update Backend Selection Section
 Choose your rendering backend based on your needs:
 
 - **WGPU**: Best for desktop apps, games, and high-performance UIs
-- **Ratatui**: Perfect for CLI tools, server applications, and terminal UIs
+- **Ratatui**: Perfect for CLI tools, server applications, and terminal UIs  
+- **Raylib**: Great for simple games, prototypes, and learning graphics programming
 
-## Adding New Backends
-
-1. Create a new crate `kryon-{backend}`
-2. Implement the `Renderer` and `CommandRenderer` traits
-3. Add feature flags to `kryon-runtime`
-4. Update backend selection in `backends.rs`
-
-## Building
-
-***bash
+## 6. Update Building Section
+```bash
 # Build all crates
 cargo build --workspace
 
 # Build with specific features
 cargo build --features wgpu
 cargo build --features ratatui
+cargo build --features raylib
 
 # Build examples
 chmod +x build.sh
 ./build.sh
-***
+```
+
+## 7. Consider Adding Default Features
+If you want raylib to be enabled by default, add this to your Cargo.toml:
+
+```toml
+[features]
+default = ["raylib"]
+raylib = ["dep:raylib"]
+wgpu = ["dep:wgpu"]
+ratatui = ["dep:ratatui"]
+```

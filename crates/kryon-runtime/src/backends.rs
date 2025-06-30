@@ -5,6 +5,9 @@ pub use kryon_wgpu::WgpuRenderer;
 #[cfg(feature = "ratatui")]
 pub use kryon_ratatui::RatatuiRenderer;
 
+#[cfg(feature = "raylib")]
+pub use kryon_raylib::RaylibRenderer;
+
 /// Backend selection enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RendererBackend {
@@ -12,6 +15,8 @@ pub enum RendererBackend {
     Wgpu,
     #[cfg(feature = "ratatui")]
     Ratatui,
+    #[cfg(feature = "raylib")]
+    Raylib,
 }
 
 impl RendererBackend {
@@ -21,6 +26,8 @@ impl RendererBackend {
             RendererBackend::Wgpu => "wgpu",
             #[cfg(feature = "ratatui")]
             RendererBackend::Ratatui => "ratatui",
+            #[cfg(feature = "raylib")]
+            RendererBackend::Raylib => "raylib",
         }
     }
     
@@ -32,6 +39,9 @@ impl RendererBackend {
         
         #[cfg(feature = "ratatui")]
         backends.push(RendererBackend::Ratatui);
+
+        #[cfg(feature = "raylib")]
+        backends.push(RendererBackend::Raylib);
         
         backends
     }

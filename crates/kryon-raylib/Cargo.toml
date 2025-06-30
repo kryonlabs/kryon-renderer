@@ -1,0 +1,20 @@
+[package]
+name = "kryon-raylib"
+version = "0.1.0"
+edition = "2021"
+authors = ["Kryon Labs"]
+description = "Raylib rendering backend for Kryon"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+kryon-core = { path = "../kryon-core" }
+kryon-render = { path = "../kryon-render" }
+kryon-layout = { path = "../kryon-layout" }
+
+# Core dependencies
+anyhow = { workspace = true }
+glam = { workspace = true }
+tracing = { workspace = true }
+
+# Raylib
+raylib = "5.0"

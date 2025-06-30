@@ -79,29 +79,9 @@ impl<R: CommandRenderer> KryonApp<R> {
         elements: &mut HashMap<ElementId, Element>,
         _krb_file: &KRBFile,
     ) -> anyhow::Result<()> {
-        // Build parent-child relationships from the parsed data
-        // This is a simplified version - in a real implementation,
-        // the KRB parser would maintain this information
-        
-        let mut element_ids: Vec<ElementId> = elements.keys().copied().collect();
-        element_ids.sort();
-        
-        // For now, assume sequential parent-child relationships
-        // based on element order in the file
-        for (i, &element_id) in element_ids.iter().enumerate() {
-            if i > 0 {
-                // Make each element a child of the previous one for demo
-                if let Some(parent) = elements.get_mut(&element_ids[i - 1]) {
-                    if parent.children.is_empty() {
-                        parent.children.push(element_id);
-                    }
-                }
-                if let Some(child) = elements.get_mut(&element_id) {
-                    child.parent = Some(element_ids[i - 1]);
-                }
-            }
-        }
-        
+        // TODO: Implement proper parent-child relationship parsing from KRB format
+        // For now, since we don't have actual child data from KRB,
+        // just leave the hierarchy as parsed (empty children lists)
         Ok(())
     }
     
@@ -305,5 +285,13 @@ impl<R: CommandRenderer> KryonApp<R> {
     
     pub fn mark_needs_render(&mut self) {
         self.needs_render = true;
+    }
+    
+    pub fn renderer(&self) -> &ElementRenderer<R> {
+        &self.renderer
+    }
+    
+    pub fn renderer_mut(&mut self) -> &mut ElementRenderer<R> {
+        &mut self.renderer
     }
 }
