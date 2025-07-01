@@ -44,7 +44,7 @@ impl<R: CommandRenderer> KryonApp<R> {
         // Link parent-child relationships
         Self::link_element_hierarchy(&mut elements, &krb_file)?;
         
-        let layout_engine = FlexboxLayoutEngine::new().with_debug(false);
+        let layout_engine = FlexboxLayoutEngine::new().with_debug(true);
         let renderer = ElementRenderer::new(renderer);
         let viewport_size = renderer.viewport_size();
         
@@ -72,6 +72,10 @@ impl<R: CommandRenderer> KryonApp<R> {
         // Initialize scripts
         app.script_system.load_scripts(&app.krb_file.scripts)?;
         
+        // >>>>>>>>> ADD THIS LINE HERE <<<<<<<<<<<
+        println!("[KryonApp::new] Loaded KRB. Root element ID: {:?}", app.krb_file.root_element_id);
+
+
         Ok(app)
     }
     
@@ -160,17 +164,28 @@ impl<R: CommandRenderer> KryonApp<R> {
         Ok(())
     }
     
-    fn update_layout(&mut self) -> anyhow::Result<()> {
-        if let Some(root_id) = self.krb_file.root_element_id {
-            self.layout_result = self.layout_engine.compute_layout(
-                &self.elements,
-                root_id,
-                self.viewport_size,
-            );
-        }
-        Ok(())
+    // In fn update_layout(&mut self) -> anyhow::Result<()>
+
+fn update_layout(&mut self) -> anyhow::Result<()> {
+    if let Some(root_id) = self.krb_file.root_element_id {
+        // >>>>>>>>> ADD THIS PRINTLN <<<<<<<<<<<
+        println!("[KryonApp] Running layout computation...");
+
+        self.layout_result = self.layout_engine.compute_layout(
+            &self.elements,
+            root_id,
+            self.viewport_size,
+        );
+
+        // >>>>>>>>> AND ADD THIS ONE <<<<<<<<<<<
+        println!("[KryonApp] Layout computed. Positions: {}, Sizes: {}",
+            self.layout_result.computed_positions.len(),
+            self.layout_result.computed_sizes.len()
+        );
     }
-    
+    Ok(())
+}
+
     fn handle_mouse_move(&mut self, position: Vec2) -> anyhow::Result<()> {
         let hovered_element = self.find_element_at_position(position);
         

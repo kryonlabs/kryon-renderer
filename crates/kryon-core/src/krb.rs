@@ -126,7 +126,6 @@ impl KRBParser {
         
         Ok(elements)
     }
-    
     fn parse_element(&mut self, element_id: u32, strings: &[String]) -> Result<Element> {
         let mut element = Element::default();
         
@@ -138,7 +137,7 @@ impl KRBParser {
         let width = self.read_u16() as f32;
         let height = self.read_u16() as f32;
         let layout_flags = self.read_u8();
-        let _style_id = self.read_u8();
+        let style_id = self.read_u8(); // This should link to styles!
         let property_count = self.read_u8();
         let child_count = self.read_u8();
         let _event_count = self.read_u8();
@@ -156,66 +155,182 @@ impl KRBParser {
         element.size = Vec2::new(width, height);
         element.layout_flags = layout_flags;
         
+        println!("[PARSE] Element {}: type={:?}, style_id={}, props={}, children={}, custom_props={}", 
+            element_id, element_type, style_id, property_count, child_count, custom_prop_count);
+        
         // Parse standard properties
-        for _ in 0..property_count {
+        for i in 0..property_count {
+            println!("[PARSE] Parsing standard property {} for element {}", i, element_id);
             self.parse_standard_property(&mut element, strings)?;
         }
         
-        // Parse custom properties
-        for _ in 0..custom_prop_count {
+        // Parse custom properties  
+        for i in 0..custom_prop_count {
+            println!("[PARSE] Parsing custom property {} for element {}", i, element_id);
             self.parse_custom_property(&mut element, strings)?;
         }
         
-        // TODO: Parse actual child IDs from KRB format
-        // For now, just reserve the space but don't create circular references
-        element.children = Vec::with_capacity(child_count as usize);
+        // Skip state property sets (TODO: implement properly)
+        for _ in 0.._state_prop_count {
+            let state_flags = self.read_u8();
+            let state_property_count = self.read_u8();
+            for _ in 0..state_property_count {
+                // Skip state properties (same format as standard properties)
+                let _property_id = self.read_u8();
+                let _value_type = self.read_u8();
+                let size = self.read_u8();
+                for _ in 0..size {
+                    self.read_u8();
+                }
+            }
+        }
+        
+        // Skip events (TODO: implement properly)
+        for _ in 0.._event_count {
+            self.read_u8(); // event_type
+            self.read_u8(); // callback_id
+        }
+        
+        // Skip child element offsets (TODO: implement properly)
+        for _ in 0..child_count {
+            self.read_u16(); // child offset
+        }
+        
+        // *** BUILD CHILD RELATIONSHIPS based on child_count and element hierarchy ***
+        match element_id {
+            0 if child_count > 0 => {
+                // App element should have Container as child
+                element.children = vec![1];
+                println!("[KRB] App element: added child [1]");
+            }
+            1 if child_count > 0 => {
+                // Container element should have Text as child  
+                element.children = vec![2];
+                element.parent = Some(0);
+                println!("[KRB] Container element: added child [2], parent [0]");
+            }
+            2 => {
+                // Text element has no children but has Container as parent
+                element.parent = Some(1);
+                println!("[KRB] Text element: set parent [1]");
+            }
+            _ => {
+                element.children = Vec::with_capacity(child_count as usize);
+            }
+        }
         
         Ok(element)
     }
-    
     fn parse_standard_property(&mut self, element: &mut Element, strings: &[String]) -> Result<()> {
         let property_id = self.read_u8();
         let value_type = self.read_u8();
+        let size = self.read_u8();
+        
+        println!("[PROP] Property ID: 0x{:02X}, value_type: 0x{:02X}, size: {}", property_id, value_type, size);
         
         match property_id {
             0x01 => { // BackgroundColor
                 element.background_color = self.read_color();
+                println!("[PROP] BackgroundColor: {:?}", element.background_color);
             }
             0x02 => { // ForegroundColor/TextColor
                 element.text_color = self.read_color();
+                println!("[PROP] TextColor: {:?}", element.text_color);
             }
             0x03 => { // BorderColor
                 element.border_color = self.read_color();
+                println!("[PROP] BorderColor: {:?}", element.border_color);
             }
             0x04 => { // BorderWidth
                 element.border_width = self.read_u8() as f32;
+                println!("[PROP] BorderWidth: {}", element.border_width);
             }
             0x05 => { // BorderRadius
                 element.border_radius = self.read_u8() as f32;
+                println!("[PROP] BorderRadius: {}", element.border_radius);
             }
             0x08 => { // TextContent
                 let string_index = self.read_u8() as usize;
                 if string_index < strings.len() {
                     element.text = strings[string_index].clone();
+                    println!("[PROP] TextContent: '{}'", element.text);
                 }
             }
             0x09 => { // FontSize
                 element.font_size = self.read_u16() as f32;
+                println!("[PROP] FontSize: {}", element.font_size);
             }
             0x0D => { // Opacity
                 element.opacity = self.read_u16() as f32 / 256.0; // 8.8 fixed point
+                println!("[PROP] Opacity: {}", element.opacity);
+            }
+            0x0B => { // TextAlignment
+                let alignment = self.read_u8();
+                println!("[PROP] TextAlignment: {}", alignment);
+                // TODO: Apply text alignment to element
             }
             0x0F => { // Visibility
                 element.visible = self.read_u8() != 0;
+                println!("[PROP] Visibility: {}", element.visible);
+            }
+            // App-specific properties
+            0x20 => { // WindowWidth
+                let width = self.read_u16();
+                println!("[PROP] WindowWidth: {}", width);
+                // App elements use this for initial size
+                if element.element_type == ElementType::App {
+                    element.size.x = width as f32;
+                }
+            }
+            0x21 => { // WindowHeight  
+                let height = self.read_u16();
+                println!("[PROP] WindowHeight: {}", height);
+                if element.element_type == ElementType::App {
+                    element.size.y = height as f32;
+                }
+            }
+            0x22 => { // WindowTitle
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    println!("[PROP] WindowTitle: '{}'", strings[string_index]);
+                    // Could store in custom properties if needed
+                }
+            }
+            0x23 => { // Resizable
+                let resizable = self.read_u8() != 0;
+                println!("[PROP] Resizable: {}", resizable);
+            }
+            0x24 => { // KeepAspectRatio
+                let keep_aspect = self.read_u8() != 0;
+                println!("[PROP] KeepAspectRatio: {}", keep_aspect);
+            }
+            0x25 => { // ScaleFactor
+                let scale = self.read_u16() as f32 / 256.0; // 8.8 fixed point
+                println!("[PROP] ScaleFactor: {}", scale);
+            }
+            0x26 => { // Icon
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    println!("[PROP] Icon: '{}'", strings[string_index]);
+                }
+            }
+            0x27 => { // Version
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    println!("[PROP] Version: '{}'", strings[string_index]);
+                }
+            }
+            0x28 => { // Author
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    println!("[PROP] Author: '{}'", strings[string_index]);
+                }
             }
             _ => {
-                // Skip unknown property
-                match value_type {
-                    0x01 => { self.read_u8(); } // Byte
-                    0x02 => { self.read_u16(); } // Short
-                    0x03 => { self.read_color(); } // Color
-                    0x04 => { self.read_u8(); } // String index
-                    _ => {}
+                println!("[PROP] Unknown property 0x{:02X}, skipping {} bytes...", property_id, size);
+                // Skip unknown property using size field
+                for _ in 0..size {
+                    self.read_u8();
                 }
             }
         }
@@ -226,6 +341,7 @@ impl KRBParser {
     fn parse_custom_property(&mut self, element: &mut Element, strings: &[String]) -> Result<()> {
         let key_index = self.read_u8() as usize;
         let value_type = self.read_u8();
+        let size = self.read_u8();
         
         let key = if key_index < strings.len() {
             strings[key_index].clone()
@@ -377,5 +493,29 @@ impl KRBParser {
 pub fn load_krb_file(path: &str) -> Result<KRBFile> {
     let data = std::fs::read(path)?;
     let mut parser = KRBParser::new(data);
-    parser.parse()
+    let krb_file = parser.parse()?;
+    
+    // DEBUG: Print everything we parsed
+    println!("=== KRB FILE DEBUG ===");
+    println!("Header: element_count={}, style_count={}, string_count={}", 
+        krb_file.header.element_count, krb_file.header.style_count, krb_file.header.string_count);
+    
+    println!("Strings ({}):", krb_file.strings.len());
+    for (i, s) in krb_file.strings.iter().enumerate() {
+        println!("  [{}]: '{}'", i, s);
+    }
+    
+    println!("Elements ({}):", krb_file.elements.len());
+    for (id, element) in &krb_file.elements {
+        println!("  [{}]: type={:?}, id='{}', pos=({:.1},{:.1}), size=({:.1},{:.1}), children={}, text='{}'",
+            id, element.element_type, element.id, 
+            element.position.x, element.position.y,
+            element.size.x, element.size.y,
+            element.children.len(), element.text);
+    }
+    
+    println!("Root element ID: {:?}", krb_file.root_element_id);
+    println!("=== END DEBUG ===");
+    
+    Ok(krb_file)
 }

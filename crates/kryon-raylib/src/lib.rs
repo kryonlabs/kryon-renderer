@@ -60,6 +60,8 @@ impl Renderer for RaylibRenderer {
             
             // Execute all commands without borrowing self
             for command in &commands {
+                println!("[RaylibRenderer] Attempting to draw: {:?}", command);
+
                 Self::execute_single_command_impl(&mut d, &mut self.textures, command)?;
             }
         }
@@ -256,13 +258,17 @@ impl RaylibRenderer {
 }
 
 fn vec4_to_raylib_color(color: Vec4) -> Color {
-    Color::new(
-        (color.x * 255.0) as u8,
-        (color.y * 255.0) as u8,
-        (color.z * 255.0) as u8,
-        (color.w * 255.0) as u8,
-    )
+    let r = (color.x * 255.0) as u8;
+    let g = (color.y * 255.0) as u8;
+    let b = (color.z * 255.0) as u8;
+    let a = (color.w * 255.0) as u8;
+
+    // >>>>>>>>> ADD THIS PRINTLN <<<<<<<<<<<
+    println!("[vec4_to_raylib_color] Final u8 color: r={}, g={}, b={}, a={}", r, g, b, a);
+    
+    Color::new(r, g, b, a)
 }
+
 
 fn raylib_key_to_kryon_key(key: KeyboardKey) -> Option<KeyCode> {
     match key {

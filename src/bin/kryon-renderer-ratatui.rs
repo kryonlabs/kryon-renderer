@@ -1,6 +1,6 @@
 // src/bin/kryon-renderer-ratatui.rs
 
-use std::io::{self, Stdout};
+use std::io;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -15,12 +15,12 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::prelude::CrosstermBackend;
-use ratatui::Terminal;
 
 // Kryon imports
 use kryon_render::{InputEvent, Renderer};
 use kryon_ratatui::RatatuiRenderer;
 use kryon_runtime::KryonApp;
+use kryon_core::load_krb_file;
 
 // Keep the same argument parser
 #[derive(Parser)]
@@ -33,6 +33,14 @@ struct Args {
     /// Enable debug logging
     #[arg(short, long)]
     debug: bool,
+
+    /// Inspect KRB file contents without rendering
+    #[arg(short, long)]
+    inspect: bool,
+
+    /// Force elements to be positioned within screen bounds
+    #[arg(short, long)]
+    force_bounds: bool,
 }
 
 fn main() -> Result<()> {
@@ -44,16 +52,24 @@ fn main() -> Result<()> {
     }
     info!("Loading KRB file: {}", args.krb_file);
 
-    // --- Terminal and Renderer Initialization ---
-    let mut terminal = setup_terminal()?;
+    // --- Inspect Mode ---
+    if args.inspect {
+        return inspect_krb_file(&args.krb_file);
+    }
 
-    // Create the renderer with the CrosstermBackend from our setup function
-    let backend = CrosstermBackend::new(io::stdout());
+    // --- Terminal and Renderer Initialization ---
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    
+    // Create the renderer with the same backend we're using for terminal management
+    let backend = CrosstermBackend::new(stdout);
     let renderer = RatatuiRenderer::initialize(backend)?;
 
     // Create the main Kryon application with the new renderer
     let mut app =
         KryonApp::new(&args.krb_file, renderer).context("Failed to create Kryon application")?;
+
 
     info!("Starting terminal render loop... (Press 'q' to quit)");
     
@@ -93,9 +109,9 @@ fn main() -> Result<()> {
     }
     
     // --- Cleanup ---
-    // The `cleanup_terminal` function ensures we always restore the terminal
-    // to its original state, even if the loop breaks on an error.
-    cleanup_terminal(&mut terminal)?;
+    // Restore the terminal to its original state
+    disable_raw_mode()?;
+    execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
     info!("Terminal renderer shutdown complete.");
     Ok(())
 }
@@ -108,23 +124,59 @@ fn init_logging(debug: bool) -> Result<()> {
     tracing::subscriber::set_global_default(subscriber).context("Failed to set tracing subscriber")
 }
 
-// Sets up the terminal for TUI mode
-fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    Terminal::new(backend).context("Failed to create terminal")
-}
-
-// Restores the terminal to its normal state
-fn cleanup_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+fn inspect_krb_file(krb_path: &str) -> Result<()> {
+    println!("🔍 Inspecting KRB file: {}", krb_path);
+    
+    let krb_file = load_krb_file(krb_path)?;
+    
+    println!("📊 File Statistics:");
+    println!("  Root element ID: {:?}", krb_file.root_element_id);
+    println!("  Total elements: {}", krb_file.elements.len());
+    println!("  Scripts: {}", krb_file.scripts.len());
+    
+    println!("\n📋 Elements:");
+    for (id, element) in &krb_file.elements {
+        println!("  Element {id}:");
+        println!("    Position: {:?}", element.position);
+        println!("    Size: {:?}", element.size);
+        println!("    Text: {:?}", element.text);
+        println!("    Visible: {}", element.visible);
+        println!("    Background: {:?}", element.background_color);
+        println!("    Text Color: {:?}", element.text_color);
+        
+        if element.position.x > 100.0 || element.position.y > 30.0 {
+            println!("    ⚠️  WARNING: Element positioned outside typical terminal bounds!");
+        }
+        
+        if element.text.is_empty() && element.background_color.w == 0.0 {
+            println!("    ⚠️  WARNING: Element has no visible content (no text, no background)!");
+        }
+        
+        if element.size.x == 0.0 || element.size.y == 0.0 {
+            println!("    ⚠️  WARNING: Element has zero size!");
+        }
+        
+        println!();
+    }
+    
+    // Check if anything would be visible in an 80x25 terminal
+    let mut visible_elements = 0;
+    for element in krb_file.elements.values() {
+        if element.visible && 
+           element.position.x < 80.0 && element.position.y < 25.0 &&
+           (!element.text.is_empty() || element.background_color.w > 0.0) &&
+           element.size.x > 0.0 && element.size.y > 0.0 {
+            visible_elements += 1;
+        }
+    }
+    
+    println!("📺 Terminal Compatibility (80x25):");
+    if visible_elements == 0 {
+        println!("  ❌ No elements would be visible in a standard terminal!");
+        println!("     Consider using --force-bounds to move elements into view.");
+    } else {
+        println!("  ✅ {} element(s) would be visible", visible_elements);
+    }
+    
     Ok(())
 }

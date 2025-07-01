@@ -60,6 +60,17 @@ impl LayoutEngine for FlexboxLayoutEngine {
         };
         
         if let Some(root_element) = elements.get(&root_id) {
+            // Calculate scaling factor based on designed size vs actual viewport
+            // Assume designed size is 800x600 (from .kry file), scale to fit viewport
+            let design_size = Vec2::new(800.0, 600.0);
+            let scale_x = viewport_size.x / design_size.x;
+            let scale_y = viewport_size.y / design_size.y;
+            let scale_factor = scale_x.min(scale_y); // Use uniform scaling to maintain aspect ratio
+            
+            if self.debug {
+                debug!("Viewport: {:?}, Design: {:?}, Scale: {:.3}", viewport_size, design_size, scale_factor);
+            }
+            
             let constraints = ConstraintBox {
                 min_width: 0.0,
                 max_width: viewport_size.x,
@@ -69,7 +80,7 @@ impl LayoutEngine for FlexboxLayoutEngine {
                 definite_height: true,
             };
             
-            self.layout_element(elements, root_id, root_element, constraints, Vec2::ZERO, &mut result);
+            self.layout_element_with_scale(elements, root_id, root_element, constraints, Vec2::ZERO, scale_factor, &mut result);
         }
         
         result
@@ -86,31 +97,60 @@ impl FlexboxLayoutEngine {
         offset: Vec2,
         result: &mut LayoutResult,
     ) {
-        // Calculate element size
-        let computed_size = self.compute_element_size(element, constraints);
+        // Default to no scaling for backward compatibility
+        self.layout_element_with_scale(elements, element_id, element, constraints, offset, 1.0, result);
+    }
+    
+    fn layout_element_with_scale(
+        &self,
+        elements: &HashMap<ElementId, Element>,
+        element_id: ElementId,
+        element: &Element,
+        constraints: ConstraintBox,
+        offset: Vec2,
+        scale_factor: f32,
+        result: &mut LayoutResult,
+    ) {
+        // Apply scaling to element size and position
+        let scaled_size = Vec2::new(
+            element.size.x * scale_factor,
+            element.size.y * scale_factor
+        );
+        let scaled_position = Vec2::new(
+            element.position.x * scale_factor,
+            element.position.y * scale_factor
+        );
         
-        // Store computed size and position
+        // Calculate element size with scaling
+        let computed_size = self.compute_element_size_scaled(scaled_size, constraints);
+        
+        // Store computed size and scaled position
         result.computed_sizes.insert(element_id, computed_size);
-        result.computed_positions.insert(element_id, element.position + offset);
+        result.computed_positions.insert(element_id, scaled_position + offset);
         
         if self.debug {
             debug!(
-                "Layout element {}: size={:?}, pos={:?}",
+                "Layout element {} (scale={:.3}): size={:?}, pos={:?}",
                 element.id,
+                scale_factor,
                 computed_size,
-                element.position + offset
+                scaled_position + offset
             );
         }
         
         // Layout children if this is a container
         if !element.children.is_empty() {
-            self.layout_children(elements, element_id, element, computed_size, offset, result);
+            self.layout_children_with_scale(elements, element_id, element, computed_size, offset, scale_factor, result);
         }
     }
     
     fn compute_element_size(&self, element: &Element, constraints: ConstraintBox) -> Vec2 {
-        let mut width = element.size.x;
-        let mut height = element.size.y;
+        self.compute_element_size_scaled(element.size, constraints)
+    }
+    
+    fn compute_element_size_scaled(&self, size: Vec2, constraints: ConstraintBox) -> Vec2 {
+        let mut width = size.x;
+        let mut height = size.y;
         
         // Handle auto sizing
         if width == 0.0 {
@@ -136,23 +176,36 @@ impl FlexboxLayoutEngine {
         parent_offset: Vec2,
         result: &mut LayoutResult,
     ) {
+        self.layout_children_with_scale(elements, _parent_id, parent, parent_size, parent_offset, 1.0, result);
+    }
+    
+    fn layout_children_with_scale(
+        &self,
+        elements: &HashMap<ElementId, Element>,
+        _parent_id: ElementId,
+        parent: &Element,
+        parent_size: Vec2,
+        parent_offset: Vec2,
+        scale_factor: f32,
+        result: &mut LayoutResult,
+    ) {
         let layout = LayoutFlags::from_bits(parent.layout_flags);
         
         match layout.direction {
             LayoutDirection::Row => {
-                self.layout_flex_children(
+                self.layout_flex_children_with_scale(
                     elements, parent, parent_size, parent_offset, 
-                    true, layout, result
+                    true, layout, scale_factor, result
                 );
             }
             LayoutDirection::Column => {
-                self.layout_flex_children(
+                self.layout_flex_children_with_scale(
                     elements, parent, parent_size, parent_offset,
-                    false, layout, result
+                    false, layout, scale_factor, result
                 );
             }
             LayoutDirection::Absolute => {
-                self.layout_absolute_children(elements, parent, parent_offset, result);
+                self.layout_absolute_children_with_scale(elements, parent, parent_offset, scale_factor, result);
             }
         }
     }
@@ -165,6 +218,20 @@ impl FlexboxLayoutEngine {
         parent_offset: Vec2,
         is_row: bool,
         layout: LayoutFlags,
+        result: &mut LayoutResult,
+    ) {
+        self.layout_flex_children_with_scale(elements, parent, parent_size, parent_offset, is_row, layout, 1.0, result);
+    }
+    
+    fn layout_flex_children_with_scale(
+        &self,
+        elements: &HashMap<ElementId, Element>,
+        parent: &Element,
+        parent_size: Vec2,
+        parent_offset: Vec2,
+        is_row: bool,
+        layout: LayoutFlags,
+        scale_factor: f32,
         result: &mut LayoutResult,
     ) {
         let mut flex_items = Vec::new();
@@ -249,12 +316,13 @@ impl FlexboxLayoutEngine {
                 let mut updated_child = child.clone();
                 updated_child.position = child_position;
                 
-                self.layout_element(
+                self.layout_element_with_scale(
                     elements,
                     item.element_id,
                     &updated_child,
                     child_constraints,
                     parent_offset + parent.position,
+                    scale_factor,
                     result,
                 );
                 
@@ -273,6 +341,17 @@ impl FlexboxLayoutEngine {
         parent_offset: Vec2,
         result: &mut LayoutResult,
     ) {
+        self.layout_absolute_children_with_scale(elements, parent, parent_offset, 1.0, result);
+    }
+    
+    fn layout_absolute_children_with_scale(
+        &self,
+        elements: &HashMap<ElementId, Element>,
+        parent: &Element,
+        parent_offset: Vec2,
+        scale_factor: f32,
+        result: &mut LayoutResult,
+    ) {
         for &child_id in &parent.children {
             if let Some(child) = elements.get(&child_id) {
                 let constraints = ConstraintBox {
@@ -284,12 +363,13 @@ impl FlexboxLayoutEngine {
                     definite_height: false,
                 };
                 
-                self.layout_element(
+                self.layout_element_with_scale(
                     elements,
                     child_id,
                     child,
                     constraints,
                     parent_offset + parent.position,
+                    scale_factor,
                     result,
                 );
             }
