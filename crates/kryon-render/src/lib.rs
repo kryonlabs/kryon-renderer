@@ -1,7 +1,10 @@
 // crates/kryon-render/src/lib.rs
 
 use anyhow::Result;
-use kryon_core::{Element, ElementId, ElementType, TextAlignment};
+use kryon_core::{
+    Element, ElementId, ElementType, TextAlignment,
+    StyleComputer, ComputedStyle
+};
 use kryon_layout::LayoutResult;
 use glam::{Vec2, Vec4};
 use std::collections::HashMap;
@@ -95,19 +98,21 @@ pub trait CommandRenderer: Renderer {
     ) -> RenderResult<()>;
 }
 
-/// High-level renderer that converts elements to commands
-/// NOTE: This struct is essential for your existing application structure.
+
 pub struct ElementRenderer<R: CommandRenderer> {
     backend: R,
+    style_computer: StyleComputer, 
     viewport_size: Vec2,
 }
 
 
+
 impl<R: CommandRenderer> ElementRenderer<R> {
-    pub fn new(backend: R) -> Self {
+    pub fn new(backend: R, style_computer: StyleComputer) -> Self {
         let viewport_size = backend.viewport_size();
         Self {
             backend,
+            style_computer,
             viewport_size,
         }
     }
@@ -142,7 +147,6 @@ impl<R: CommandRenderer> ElementRenderer<R> {
 
         let commands = self.element_to_commands(element, layout, element_id)?;
 
-        // >>>>>>>>> ADD THIS PRINTLN <<<<<<<<<<<
         println!("[ElementRenderer] For element ID {}, generated {} commands.", element_id, commands.len());
 
         self.backend.execute_commands(context, &commands)?;
@@ -154,98 +158,94 @@ impl<R: CommandRenderer> ElementRenderer<R> {
         }
         Ok(())
     }
+
     fn element_to_commands(
         &self,
-        element: &Element,
+        element: &Element, // The fix is to USE this parameter...
         layout: &LayoutResult,
         element_id: ElementId,
     ) -> RenderResult<Vec<RenderCommand>> {
         let mut commands = Vec::new();
-        let position = layout.computed_positions.get(&element_id).copied().unwrap_or(element.position);
+
+        // Compute the final style based on inheritance
+        let style = self.style_computer.compute(element_id);
+        
+        // ... instead of calling a non-existent method.
+        // let element = self.style_computer.get_element(element_id).unwrap(); // <-- REMOVE THIS LINE
+
+        // For elements with explicit positions in KRB (non-zero), use those instead of layout
+        let position = if element.position != Vec2::ZERO {
+            // Element has explicit position in KRB - use it (fixed positioning)
+            element.position
+        } else {
+            // Element has no explicit position - use layout computed position
+            layout.computed_positions.get(&element_id).copied().unwrap_or(element.position)
+        };
+        
         let size = layout.computed_sizes.get(&element_id).copied().unwrap_or(element.size);
-    
-        let mut bg_color = element.background_color;
+        
+        println!("[POSITION] Element {}: KRB pos={:?}, Layout pos={:?}, Final pos={:?}", 
+            element_id, element.position, layout.computed_positions.get(&element_id), position);
+
+        // Now, use the perfectly computed style values!
+        let mut bg_color = style.background_color;
         bg_color.w *= element.opacity;
-    
-        let mut border_width = element.border_width;
-        let mut border_color = element.border_color;
+
+        let mut border_width = style.border_width;
+        let mut border_color = style.border_color;
         border_color.w *= element.opacity;
-    
+        
         println!("[element_to_commands] Element {}: bg={:?}, border={:?}, border_width={}, type={:?}",
             element.id, bg_color, border_color, border_width, element.element_type);
-    
-        // TEMPORARY DEBUG FIX: Add fallback colors based on your KRY file
-        let debug_fallback = true;
-        if debug_fallback {
-            match element.element_type {
-                kryon_core::ElementType::App => {
-                    // App should have dark gray background from "appstyle"
-                    if bg_color.w <= 0.01 {
-                        bg_color = Vec4::new(0.098, 0.098, 0.098, 1.0); // #191919FF
-                        println!("[DEBUG] App: Applied fallback dark gray background");
-                    }
-                }
-                kryon_core::ElementType::Container => {
-                    // Container should have midnight blue background and cyan border from "containerstyle" 
-                    if bg_color.w <= 0.01 {
-                        bg_color = Vec4::new(0.098, 0.098, 0.439, 1.0); // #191970FF (midnight blue)
-                        println!("[DEBUG] Container: Applied fallback midnight blue background");
-                    }
-                    if border_color.w <= 0.01 {
-                        border_color = Vec4::new(0.0, 1.0, 1.0, 1.0); // #00FFFFFF (cyan)
-                        border_width = 1.0;
-                        println!("[DEBUG] Container: Applied fallback cyan border");
-                    }
-                }
-                kryon_core::ElementType::Text => {
-                    // Text should inherit yellow color from app style
-                    // We'll handle this below in the text section
-                }
-                _ => {}
-            }
-        }
-    
-        // If a border color is set (alpha > 0) but width is 0, default it to 1.
+
         if border_width == 0.0 && border_color.w > 0.0 {
             border_width = 1.0;
         }
-    
-        // Draw background/border if visible
+
         if bg_color.w > 0.0 || border_width > 0.0 {
             commands.push(RenderCommand::DrawRect {
                 position, size, color: bg_color,
-                border_radius: element.border_radius,
+                border_radius: style.border_radius,
                 border_width,
                 border_color,
             });
         }
-    
-        // Handle text rendering
+
         if !element.text.is_empty() {
-            let mut text_color = element.text_color;
+            let mut text_color = style.text_color;
             text_color.w *= element.opacity;
-    
-            // DEBUG FIX: Apply yellow text color from your KRY styles
-            if debug_fallback && text_color.w <= 0.01 {
-                text_color = Vec4::new(1.0, 1.0, 0.0, 1.0); // #FFFF00FF (yellow)
-                println!("[DEBUG] Text '{}': Applied fallback yellow color", element.text);
-            }
-    
+
             if text_color.w > 0.0 {
+                // Calculate text position based on alignment
+                let text_position = match element.text_alignment {
+                    TextAlignment::Center => {
+                        // Center the text in the element
+                        Vec2::new(
+                            position.x + size.x / 2.0,
+                            position.y + size.y / 2.0 - element.font_size.max(16.0) / 2.0
+                        )
+                    }
+                    TextAlignment::Start => position + Vec2::new(5.0, 5.0),
+                    TextAlignment::End => Vec2::new(
+                        position.x + size.x - 5.0,
+                        position.y + 5.0
+                    ),
+                    TextAlignment::Justify => position + Vec2::new(5.0, 5.0),
+                };
+                
                 commands.push(RenderCommand::DrawText {
-                    position: position + Vec2::new(5.0, 5.0),
+                    position: text_position,
                     text: element.text.clone(),
                     font_size: element.font_size.max(16.0),
                     color: text_color,
-                    alignment: element.text_alignment.into(),
+                    alignment: element.text_alignment,
                     max_width: Some(size.x - 10.0),
                 });
             }
         }
-    
+
         Ok(commands)
     }
-    
     pub fn resize(&mut self, new_size: Vec2) -> RenderResult<()> {
         self.viewport_size = new_size;
         self.backend.resize(new_size)

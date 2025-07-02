@@ -1,5 +1,9 @@
 // crates/kryon-runtime/src/lib.rs
-use kryon_core::{KRBFile, Element, ElementId, InteractionState, EventType, load_krb_file};
+
+use kryon_core::{
+    KRBFile, Element, ElementId, InteractionState, EventType, load_krb_file,
+    StyleComputer, ComputedStyle,
+};
 use kryon_layout::{LayoutEngine, FlexboxLayoutEngine, LayoutResult};
 use kryon_render::{ElementRenderer, CommandRenderer, InputEvent, MouseButton, KeyCode};
 use glam::Vec2;
@@ -20,6 +24,7 @@ pub struct KryonApp<R: CommandRenderer> {
     elements: HashMap<ElementId, Element>,
     
     // Systems
+    style_computer: StyleComputer, 
     layout_engine: FlexboxLayoutEngine,
     renderer: ElementRenderer<R>,
     event_system: EventSystem,
@@ -41,11 +46,13 @@ impl<R: CommandRenderer> KryonApp<R> {
         let krb_file = load_krb_file(krb_path)?;
         let mut elements = krb_file.elements.clone();
         
+        let style_computer = StyleComputer::new(&elements, &krb_file.styles);
+
         // Link parent-child relationships
         Self::link_element_hierarchy(&mut elements, &krb_file)?;
         
         let layout_engine = FlexboxLayoutEngine::new().with_debug(true);
-        let renderer = ElementRenderer::new(renderer);
+        let renderer = ElementRenderer::new(renderer, style_computer.clone());
         let viewport_size = renderer.viewport_size();
         
         let event_system = EventSystem::new();
@@ -54,6 +61,7 @@ impl<R: CommandRenderer> KryonApp<R> {
         let mut app = Self {
             krb_file,
             elements,
+            style_computer,
             layout_engine,
             renderer,
             event_system,
@@ -72,7 +80,6 @@ impl<R: CommandRenderer> KryonApp<R> {
         // Initialize scripts
         app.script_system.load_scripts(&app.krb_file.scripts)?;
         
-        // >>>>>>>>> ADD THIS LINE HERE <<<<<<<<<<<
         println!("[KryonApp::new] Loaded KRB. Root element ID: {:?}", app.krb_file.root_element_id);
 
 

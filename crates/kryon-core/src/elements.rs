@@ -46,6 +46,8 @@ pub struct Element {
     pub parent: Option<ElementId>,
     pub children: Vec<ElementId>,
     
+    pub style_id: u8,
+
     // Layout properties
     pub position: Vec2,
     pub size: Vec2,
@@ -129,6 +131,7 @@ impl Default for Element {
             element_type: ElementType::Container,
             parent: None,
             children: Vec::new(),
+            style_id: 0, 
             position: Vec2::ZERO,
             size: Vec2::ZERO,
             layout_flags: 0,

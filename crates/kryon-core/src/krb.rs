@@ -1,5 +1,5 @@
 // crates/kryon-core/src/krb.rs
-use crate::{Element, ElementType, PropertyValue, Result, KryonError};
+use crate::{Element, ElementType, PropertyValue, Result, KryonError, TextAlignment, Style}; 
 use std::collections::HashMap;
 use glam::{Vec2, Vec4};
 
@@ -8,6 +8,7 @@ pub struct KRBFile {
     pub header: KRBHeader,
     pub strings: Vec<String>,
     pub elements: HashMap<u32, Element>,
+    pub styles: HashMap<u8, Style>, 
     pub root_element_id: Option<u32>,
     pub resources: Vec<String>,
     pub scripts: Vec<ScriptEntry>,
@@ -56,6 +57,7 @@ impl KRBParser {
         }
         
         let strings = self.parse_string_table(&header)?;
+        let styles = self.parse_style_table(&header, &strings)?;
         let elements = self.parse_element_tree(&header, &strings)?;
         let resources = self.parse_resource_table(&header)?;
         let scripts = self.parse_script_table(&header, &strings)?;
@@ -69,12 +71,69 @@ impl KRBParser {
             header,
             strings,
             elements,
+            styles,
             root_element_id,
             resources,
             scripts,
         })
     }
     
+    fn parse_style_table(&mut self, header: &KRBHeader, strings: &[String]) -> Result<HashMap<u8, Style>> {
+        let style_offset = self.read_u32_at(26) as usize;
+        let mut styles = HashMap::new();
+        
+        println!("[STYLE] Parsing {} styles from offset 0x{:X}", header.style_count, style_offset);
+        
+        self.position = style_offset;
+        
+        for i in 0..header.style_count {
+            let style_id = self.read_u8(); // Read the actual style ID from file
+            let name_index = self.read_u8() as usize;
+            let property_count = self.read_u8();
+
+            let name = if name_index < strings.len() {
+                strings[name_index].clone()
+            } else {
+                format!("style_{}", style_id)
+            };
+
+            println!("[STYLE] Style {}: name='{}', name_index={}, props={}", style_id, name, name_index, property_count);
+
+            let mut properties = HashMap::new();
+            for j in 0..property_count {
+                let prop_id = self.read_u8();
+                let _value_type = self.read_u8(); // We can use this for more robust parsing later
+                let size = self.read_u8();
+                
+                println!("[STYLE]   Property {}: id=0x{:02X}, size={}", j, prop_id, size);
+                
+                let value = match prop_id {
+                    0x01 | 0x02 | 0x03 => PropertyValue::Color(self.read_color()),
+                    0x04 | 0x05 => PropertyValue::Float(self.read_u8() as f32), // BorderWidth, BorderRadius
+                    // Add other property types here
+                    _ => {
+                        // Skip unknown properties
+                        println!("[STYLE]     Skipping unknown property 0x{:02X}", prop_id);
+                        self.position += size as usize;
+                        continue;
+                    }
+                };
+                properties.insert(prop_id, value);
+            }
+            
+            println!("[STYLE] Loaded style {}: '{}' with {} properties", style_id, name, properties.len());
+            // Ensure we don't overwrite existing styles with the same ID
+            if !styles.contains_key(&style_id) {
+                styles.insert(style_id, Style { name, properties });
+            } else {
+                println!("[STYLE] WARNING: Duplicate style ID {} - skipping", style_id);
+            }
+        }
+
+        println!("[STYLE] Parsed {} styles total", styles.len());
+        Ok(styles)
+    }
+
     fn parse_header(&mut self) -> Result<KRBHeader> {
         if self.data.len() < 54 {
             return Err(KryonError::InvalidKRB("File too small".to_string()));
@@ -137,7 +196,7 @@ impl KRBParser {
         let width = self.read_u16() as f32;
         let height = self.read_u16() as f32;
         let layout_flags = self.read_u8();
-        let style_id = self.read_u8(); // This should link to styles!
+        let style_id = self.read_u8();
         let property_count = self.read_u8();
         let child_count = self.read_u8();
         let _event_count = self.read_u8();
@@ -151,6 +210,8 @@ impl KRBParser {
         } else {
             format!("element_{}", element_id)
         };
+        
+        element.style_id = style_id; 
         element.position = Vec2::new(pos_x, pos_y);
         element.size = Vec2::new(width, height);
         element.layout_flags = layout_flags;
@@ -267,7 +328,14 @@ impl KRBParser {
             0x0B => { // TextAlignment
                 let alignment = self.read_u8();
                 println!("[PROP] TextAlignment: {}", alignment);
-                // TODO: Apply text alignment to element
+                // Apply text alignment to element
+                element.text_alignment = match alignment {
+                    0 => TextAlignment::Start,
+                    1 => TextAlignment::Center,
+                    2 => TextAlignment::End,
+                    3 => TextAlignment::Justify,
+                    _ => TextAlignment::Start,
+                };
             }
             0x0F => { // Visibility
                 element.visible = self.read_u8() != 0;
@@ -499,6 +567,14 @@ pub fn load_krb_file(path: &str) -> Result<KRBFile> {
     println!("=== KRB FILE DEBUG ===");
     println!("Header: element_count={}, style_count={}, string_count={}", 
         krb_file.header.element_count, krb_file.header.style_count, krb_file.header.string_count);
+    
+    // Add explicit style debugging
+    if krb_file.header.style_count == 0 {
+        println!("WARNING: No styles found in KRB file! This means:");
+        println!("  - Styles were not compiled into the KRB");
+        println!("  - Elements will use default colors (black text, transparent backgrounds)");
+        println!("  - The original .kry file styles were lost during compilation");
+    }
     
     println!("Strings ({}):", krb_file.strings.len());
     for (i, s) in krb_file.strings.iter().enumerate() {

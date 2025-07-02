@@ -4,12 +4,16 @@ pub mod elements;
 pub mod properties;
 pub mod resources;
 pub mod events;
+pub mod style;
+
 
 pub use elements::*;
 pub use properties::*;
 pub use krb::*;
 pub use resources::*;
 pub use events::*;
+pub use style::*; 
+
 
 #[derive(Debug, thiserror::Error)]
 pub enum KryonError {
