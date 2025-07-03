@@ -25,6 +25,10 @@ name = "kryon-renderer-raylib"
 path = "src/bin/kryon-renderer-raylib.rs"
 required-features = ["raylib"]
 
+[[bin]]
+name = "kryon-renderer-debug"
+path = "src/bin/kryon-renderer-debug.rs"
+
 
 [workspace]
 members = [
