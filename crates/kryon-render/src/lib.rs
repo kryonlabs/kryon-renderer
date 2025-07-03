@@ -5,7 +5,7 @@ use kryon_core::{
     Element, ElementId, ElementType, TextAlignment,
     StyleComputer, ComputedStyle
 };
-use kryon_layout::LayoutResult;
+use kryon_layout::{LayoutResult, LayoutFlags, LayoutAlignment};
 use glam::{Vec2, Vec4};
 use std::collections::HashMap;
 
@@ -161,7 +161,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
 
     fn element_to_commands(
         &self,
-        element: &Element, // The fix is to USE this parameter...
+        element: &Element,
         layout: &LayoutResult,
         element_id: ElementId,
     ) -> RenderResult<Vec<RenderCommand>> {
@@ -170,19 +170,8 @@ impl<R: CommandRenderer> ElementRenderer<R> {
         // Compute the final style based on inheritance
         let style = self.style_computer.compute(element_id);
         
-        // ... instead of calling a non-existent method.
-        // let element = self.style_computer.get_element(element_id).unwrap(); // <-- REMOVE THIS LINE
-
-        // For elements with explicit positions in KRB (non-zero), use those instead of layout
-        let position = if element.position != Vec2::ZERO {
-            // Element has explicit position in KRB - use it (fixed positioning)
-            element.position
-        } else {
-            // Element has no explicit position - use layout computed position
-            layout.computed_positions.get(&element_id).copied().unwrap_or(element.position)
-        };
-        
-        let size = layout.computed_sizes.get(&element_id).copied().unwrap_or(element.size);
+        // Calculate position based on parent-child relationships
+        let (position, size) = self.calculate_element_layout(element, layout, element_id);
         
         println!("[POSITION] Element {}: KRB pos={:?}, Layout pos={:?}, Final pos={:?}", 
             element_id, element.position, layout.computed_positions.get(&element_id), position);
@@ -216,14 +205,14 @@ impl<R: CommandRenderer> ElementRenderer<R> {
             text_color.w *= element.opacity;
 
             if text_color.w > 0.0 {
-                // Calculate text position based on alignment
+                // For text positioning, we need to handle alignment properly
+                // For centered text, the calculate_element_layout already centers the text element
+                // within its parent, so we just need to position the text at the center of the element
                 let text_position = match element.text_alignment {
                     TextAlignment::Center => {
-                        // Center the text in the element
-                        Vec2::new(
-                            position.x + size.x / 2.0,
-                            position.y + size.y / 2.0 - element.font_size.max(16.0) / 2.0
-                        )
+                        // The position already represents the centered bounds of the text element
+                        // For raylib, center alignment means the text is drawn centered at this position
+                        position
                     }
                     TextAlignment::Start => position + Vec2::new(5.0, 5.0),
                     TextAlignment::End => Vec2::new(
@@ -239,13 +228,93 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                     font_size: element.font_size.max(16.0),
                     color: text_color,
                     alignment: element.text_alignment,
-                    max_width: Some(size.x - 10.0),
+                    max_width: Some(size.x.max(10.0) - 10.0),
                 });
             }
         }
 
         Ok(commands)
     }
+    
+    fn calculate_element_layout(
+        &self,
+        element: &Element,
+        layout: &LayoutResult,
+        element_id: ElementId,
+    ) -> (Vec2, Vec2) {
+        // Check if element has explicit position (absolute positioning)
+        if element.position != Vec2::ZERO {
+            // Element has explicit position - use absolute positioning
+            let size = layout.computed_sizes.get(&element_id).copied().unwrap_or(element.size);
+            return (element.position, size);
+        }
+        
+        // Element has no explicit position - check if layout engine positioned it
+        let layout_position = layout.computed_positions.get(&element_id).copied();
+        let layout_size = layout.computed_sizes.get(&element_id).copied();
+        
+        println!("[LAYOUT] Element {}: layout_pos={:?}, layout_size={:?}, parent={:?}", 
+            element_id, layout_position, layout_size, element.parent);
+        
+        // If layout engine has positioned this element, use its position
+        if let Some(layout_pos) = layout_position {
+            let size = layout_size.unwrap_or(element.size);
+            println!("[LAYOUT] Using layout engine position for element {}: {:?}", element_id, layout_pos);
+            return (layout_pos, size);
+        }
+        
+        // Fallback to parent-relative positioning
+        if let Some(parent_id) = element.parent {
+            // Get parent element from style computer
+            if let Some(parent_element) = self.style_computer.get_element(parent_id) {
+                println!("[LAYOUT] Parent {} has layout_flags: {:08b}", parent_id, parent_element.layout_flags);
+                // Calculate parent's final position recursively
+                let (parent_pos, parent_size) = self.calculate_element_layout(parent_element, layout, parent_id);
+                
+                // Position child relative to parent based on parent's layout settings
+                let child_size = layout.computed_sizes.get(&element_id).copied().unwrap_or(element.size);
+                
+                // If child size is invalid (inf) or zero, use reasonable defaults
+                let final_child_size = Vec2::new(
+                    if child_size.x.is_finite() && child_size.x > 0.0 { 
+                        child_size.x 
+                    } else { 
+                        // For text elements, calculate reasonable width based on text length
+                        if element.element_type == ElementType::Text && !element.text.is_empty() {
+                            // Estimate text width: ~8 pixels per character + some padding
+                            (element.text.len() as f32 * 8.0).min(parent_size.x * 0.8)
+                        } else {
+                            parent_size.x * 0.8
+                        }
+                    },
+                    if child_size.y.is_finite() && child_size.y > 0.0 { 
+                        child_size.y 
+                    } else { 
+                        // For text, use font size + padding
+                        if element.element_type == ElementType::Text {
+                            element.font_size.max(16.0) + 8.0
+                        } else {
+                            20.0
+                        }
+                    }
+                );
+                
+                // Center the child within the parent
+                let child_pos = Vec2::new(
+                    parent_pos.x + (parent_size.x - final_child_size.x) / 2.0,
+                    parent_pos.y + (parent_size.y - final_child_size.y) / 2.0,
+                );
+                
+                return (child_pos, final_child_size);
+            }
+        }
+        
+        // Fallback: use layout computed position or element position
+        let position = layout.computed_positions.get(&element_id).copied().unwrap_or(element.position);
+        let size = layout.computed_sizes.get(&element_id).copied().unwrap_or(element.size);
+        (position, size)
+    }
+
     pub fn resize(&mut self, new_size: Vec2) -> RenderResult<()> {
         self.viewport_size = new_size;
         self.backend.resize(new_size)

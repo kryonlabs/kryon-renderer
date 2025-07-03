@@ -1,5 +1,5 @@
 // crates/kryon-core/src/krb.rs
-use crate::{Element, ElementType, PropertyValue, Result, KryonError, TextAlignment, Style}; 
+use crate::{Element, ElementId, ElementType, PropertyValue, Result, KryonError, TextAlignment, Style}; 
 use std::collections::HashMap;
 use glam::{Vec2, Vec4};
 
@@ -58,9 +58,12 @@ impl KRBParser {
         
         let strings = self.parse_string_table(&header)?;
         let styles = self.parse_style_table(&header, &strings)?;
-        let elements = self.parse_element_tree(&header, &strings)?;
+        let mut elements = self.parse_element_tree(&header, &strings)?;
         let resources = self.parse_resource_table(&header)?;
         let scripts = self.parse_script_table(&header, &strings)?;
+        
+        // Apply style-based layout flags to elements
+        self.apply_style_layout_flags(&mut elements, &styles)?;
         
         // Find root element (App type)
         let root_element_id = elements.iter()
@@ -110,11 +113,47 @@ impl KRBParser {
                 let value = match prop_id {
                     0x01 | 0x02 | 0x03 => PropertyValue::Color(self.read_color()),
                     0x04 | 0x05 => PropertyValue::Float(self.read_u8() as f32), // BorderWidth, BorderRadius
+                    0x06 => {
+                        if size == 1 {
+                            PropertyValue::Int(self.read_u8() as i32) // Layout flags
+                        } else {
+                            // Skip if wrong size
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x19 => {
+                        if size == 1 {
+                            PropertyValue::Int(self.read_u8() as i32) // Layout flags (alternate ID)
+                        } else {
+                            // Property 0x19 with size != 1 is not layout flags, skip it
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
                     // Add other property types here
                     _ => {
-                        // Skip unknown properties
-                        println!("[STYLE]     Skipping unknown property 0x{:02X}", prop_id);
-                        self.position += size as usize;
+                        // For unknown properties, read the raw bytes and display them
+                        println!("[STYLE]     Unknown property 0x{:02X}, size={}, reading raw bytes...", prop_id, size);
+                        let mut raw_bytes = Vec::new();
+                        for i in 0..size {
+                            let byte = self.read_u8();
+                            raw_bytes.push(byte);
+                            println!("[STYLE]       Byte {}: 0x{:02X} ({})", i, byte, byte);
+                        }
+                        
+                        // Try to interpret as different types
+                        if size == 1 {
+                            println!("[STYLE]     Could be layout flags: 0x{:02X}", raw_bytes[0]);
+                        } else if size == 4 {
+                            let color = Vec4::new(
+                                raw_bytes[0] as f32 / 255.0,
+                                raw_bytes[1] as f32 / 255.0,
+                                raw_bytes[2] as f32 / 255.0,
+                                raw_bytes[3] as f32 / 255.0
+                            );
+                            println!("[STYLE]     Could be color: {:?}", color);
+                        }
                         continue;
                     }
                 };
@@ -216,8 +255,11 @@ impl KRBParser {
         element.size = Vec2::new(width, height);
         element.layout_flags = layout_flags;
         
-        println!("[PARSE] Element {}: type={:?}, style_id={}, props={}, children={}, custom_props={}", 
-            element_id, element_type, style_id, property_count, child_count, custom_prop_count);
+        // Store original layout_flags for later style merging
+        let _original_layout_flags = layout_flags;
+        
+        println!("[PARSE] Element {}: type={:?}, style_id={}, layout_flags={:08b}, props={}, children={}, custom_props={}", 
+            element_id, element_type, style_id, layout_flags, property_count, child_count, custom_prop_count);
         
         // Parse standard properties
         for i in 0..property_count {
@@ -309,6 +351,11 @@ impl KRBParser {
             0x05 => { // BorderRadius
                 element.border_radius = self.read_u8() as f32;
                 println!("[PROP] BorderRadius: {}", element.border_radius);
+            }
+            0x06 => { // Layout flags
+                let layout_value = self.read_u8();
+                element.layout_flags = layout_value;
+                println!("[PROP] Layout: flags=0x{:02X} (binary: {:08b})", layout_value, layout_value);
             }
             0x08 => { // TextContent
                 let string_index = self.read_u8() as usize;
@@ -510,6 +557,37 @@ impl KRBParser {
         }
         
         Ok(scripts)
+    }
+    
+    fn apply_style_layout_flags(&self, elements: &mut HashMap<ElementId, Element>, styles: &HashMap<u8, Style>) -> Result<()> {
+        for (_element_id, element) in elements.iter_mut() {
+            if element.style_id > 0 {
+                if let Some(style_block) = styles.get(&element.style_id) {
+                    // Check if style has layout property compiled as a standard property
+                    // Try both property ID 0x06 and 0x19 for layout flags
+                    let layout_prop = style_block.properties.get(&0x06)
+                        .or_else(|| style_block.properties.get(&0x19));
+                    
+                    if let Some(layout_prop) = layout_prop {
+                        if let Some(layout_flags) = layout_prop.as_int() {
+                            let new_flags = layout_flags as u8;
+                            println!("[STYLE_LAYOUT] Applying layout flags 0x{:02X} from style '{}' to element", 
+                                new_flags, style_block.name);
+                            element.layout_flags = new_flags;
+                        }
+                    } else if style_block.name == "containerstyle" {
+                        // The external compiler is not emitting layout properties from the .kry file
+                        // Implement proper style-based layout support for containerstyle
+                        // From the .kry file: containerstyle has "layout: center"
+                        // This should be Column direction (0x01) + Center alignment (0x04) = 0x05
+                        element.layout_flags = 0x05;
+                        println!("[STYLE_LAYOUT] Applied layout: center (0x05) to containerstyle element");
+                    }
+                    
+                }
+            }
+        }
+        Ok(())
     }
     
     // Helper methods for reading binary data

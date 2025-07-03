@@ -66,10 +66,19 @@ impl StyleComputer {
 
         // STEP 1: Get Parent's Computed Style (Inheritance)
         // If the element has a parent, compute its style first and use it as the base.
-        // Otherwise, start with the default style.
-        let mut computed_style = element.parent
-            .map(|parent_id| self.compute(parent_id))
-            .unwrap_or_else(ComputedStyle::default);
+        // Only inherit text color, not borders (which are component-specific)
+        let mut computed_style = if let Some(parent_id) = element.parent {
+            let parent_style = self.compute(parent_id);
+            ComputedStyle {
+                text_color: parent_style.text_color, // Inherit text color
+                background_color: Vec4::ZERO, // Don't inherit background
+                border_color: Vec4::ZERO, // Don't inherit border
+                border_width: 0.0, // Don't inherit border
+                border_radius: 0.0, // Don't inherit border
+            }
+        } else {
+            ComputedStyle::default()
+        };
 
         println!("[StyleComputer]   Base style: bg={:?}, text={:?}, border={:?}", 
             computed_style.background_color, computed_style.text_color, computed_style.border_color);
@@ -124,5 +133,10 @@ impl StyleComputer {
         // Store the final computed style in the cache and return it.
         self.cache.borrow_mut().insert(element_id, computed_style);
         computed_style
+    }
+    
+    /// Get an element by ID
+    pub fn get_element(&self, element_id: ElementId) -> Option<&Element> {
+        self.elements.get(&element_id)
     }
 }
