@@ -148,7 +148,7 @@ impl CommandRenderer for WgpuRenderer {
 impl WgpuRenderer {
 
     async fn new_async(window: std::sync::Arc<Window>, size: Vec2) -> RenderResult<Self> {
-        println!("Creating WGPU instance...");
+        eprintln!("Creating WGPU instance...");
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             flags: wgpu::InstanceFlags::DEBUG,
@@ -161,19 +161,19 @@ impl WgpuRenderer {
             .map_err(|e| RenderError::InitializationFailed(format!("Failed to create surface: {}", e)))?;
 
         // Debug: Enumerate all adapters first
-        println!("Enumerating all adapters...");
+        eprintln!("Enumerating all adapters...");
         let adapters: Vec<_> = instance.enumerate_adapters(wgpu::Backends::all()).into_iter().collect();
-        println!("Found {} total adapters:", adapters.len());
+        eprintln!("Found {} total adapters:", adapters.len());
         for (i, adapter) in adapters.iter().enumerate() {
             let info = adapter.get_info();
-            println!("  Adapter {}: {} ({:?}) - {:?}", i, info.name, info.backend, info.device_type);
+            eprintln!("  Adapter {}: {} ({:?}) - {:?}", i, info.name, info.backend, info.device_type);
         }
 
         if adapters.is_empty() {
             return Err(RenderError::InitializationFailed("No adapters enumerated by WGPU".to_string()));
         }
 
-        println!("Requesting adapter with surface compatibility...");
+        eprintln!("Requesting adapter with surface compatibility...");
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
@@ -185,14 +185,14 @@ impl WgpuRenderer {
         let adapter = match adapter {
             Some(adapter) => {
                 let info = adapter.get_info();
-                println!("SUCCESS: Found compatible adapter: {} ({:?})", info.name, info.backend);
+                eprintln!("SUCCESS: Found compatible adapter: {} ({:?})", info.name, info.backend);
                 adapter
             }
             None => {
-                println!("ERROR: No surface-compatible adapter found!");
+                eprintln!("ERROR: No surface-compatible adapter found!");
 
                 // Try without surface compatibility as fallback
-                println!("Trying without surface compatibility...");
+                eprintln!("Trying without surface compatibility...");
                 let fallback_adapter = instance
                     .request_adapter(&wgpu::RequestAdapterOptions {
                         power_preference: wgpu::PowerPreference::default(),
@@ -204,7 +204,7 @@ impl WgpuRenderer {
                 match fallback_adapter {
                     Some(adapter) => {
                         let info = adapter.get_info();
-                        println!("FALLBACK: Using adapter without surface check: {} ({:?})", info.name, info.backend);
+                        eprintln!("FALLBACK: Using adapter without surface check: {} ({:?})", info.name, info.backend);
                         adapter
                     }
                     None => {

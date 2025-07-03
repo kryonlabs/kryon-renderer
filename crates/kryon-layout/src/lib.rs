@@ -141,12 +141,12 @@ impl FlexboxLayoutEngine {
         }
         
         // Layout children if this is a container
-        println!("[LAYOUT_ELEMENT] Element {} has {} children", element.id, element.children.len());
+        eprintln!("[LAYOUT_ELEMENT] Element {} has {} children", element.id, element.children.len());
         if !element.children.is_empty() {
-            println!("[LAYOUT_ELEMENT] Laying out children for element {} at offset {:?}", element.id, final_position);
+            eprintln!("[LAYOUT_ELEMENT] Laying out children for element {} at offset {:?}", element.id, final_position);
             self.layout_children_with_scale(elements, element_id, element, computed_size, final_position, scale_factor, result);
         } else {
-            println!("[LAYOUT_ELEMENT] No children to layout for element {}", element.id);
+            eprintln!("[LAYOUT_ELEMENT] No children to layout for element {}", element.id);
         }
     }
     
@@ -196,29 +196,29 @@ impl FlexboxLayoutEngine {
         result: &mut LayoutResult,
     ) {
         let layout = LayoutFlags::from_bits(parent.layout_flags);
-        println!("[LAYOUT_ENGINE] Parent {} has layout_flags=0x{:02X}, parsed as direction={:?}, alignment={:?}", 
+        eprintln!("[LAYOUT_ENGINE] Parent {} has layout_flags=0x{:02X}, parsed as direction={:?}, alignment={:?}", 
             parent.id, parent.layout_flags, layout.direction, layout.alignment);
         
-        println!("[LAYOUT_CHILDREN] Parent {} direction={:?}, alignment={:?}", 
+        eprintln!("[LAYOUT_CHILDREN] Parent {} direction={:?}, alignment={:?}", 
             parent.id, layout.direction, layout.alignment);
             
         match layout.direction {
             LayoutDirection::Row => {
-                println!("[LAYOUT_CHILDREN] Using ROW layout for {}", parent.id);
+                eprintln!("[LAYOUT_CHILDREN] Using ROW layout for {}", parent.id);
                 self.layout_flex_children_with_scale(
                     elements, parent, parent_size, parent_offset, 
                     true, layout, scale_factor, result
                 );
             }
             LayoutDirection::Column => {
-                println!("[LAYOUT_CHILDREN] Using COLUMN layout for {}", parent.id);
+                eprintln!("[LAYOUT_CHILDREN] Using COLUMN layout for {}", parent.id);
                 self.layout_flex_children_with_scale(
                     elements, parent, parent_size, parent_offset,
                     false, layout, scale_factor, result
                 );
             }
             LayoutDirection::Absolute => {
-                println!("[LAYOUT_CHILDREN] Using ABSOLUTE layout for {}", parent.id);
+                eprintln!("[LAYOUT_CHILDREN] Using ABSOLUTE layout for {}", parent.id);
                 self.layout_absolute_children_with_scale(elements, parent, parent_offset, scale_factor, result);
             }
         }
@@ -248,7 +248,7 @@ fn layout_flex_children_with_scale(
     scale_factor: f32,
     result: &mut LayoutResult,
 ) {
-    println!("[LAYOUT_FLEX_START] Parent={}, is_row={}, children_count={}, parent_offset={:?}",
+    eprintln!("[LAYOUT_FLEX_START] Parent={}, is_row={}, children_count={}, parent_offset={:?}",
         parent.id, is_row, parent.children.len(), parent_offset);
     let mut flex_items = Vec::new();
     let mut total_flex_grow = 0.0;
@@ -260,7 +260,7 @@ fn layout_flex_children_with_scale(
             // NEW: If a child has an explicit position, treat it like an absolute element
             // and do not include it in the flexbox flow calculation.
             if child.position != Vec2::ZERO {
-                println!("[LAYOUT_FLEX] Child {} at {:?} has absolute position, skipping flex flow.", child.id, child.position);
+                eprintln!("[LAYOUT_FLEX] Child {} at {:?} has absolute position, skipping flex flow.", child.id, child.position);
                 let constraints = ConstraintBox {
                     min_width: 0.0, max_width: f32::INFINITY,
                     min_height: 0.0, max_height: f32::INFINITY,
@@ -295,7 +295,7 @@ fn layout_flex_children_with_scale(
                 self.compute_element_size(child, constraints)
             };
             
-            println!("[FLEX_SIZE] Child {}: is_text={}, intrinsic_size={:?}", 
+            eprintln!("[FLEX_SIZE] Child {}: is_text={}, intrinsic_size={:?}", 
                 child.id, is_text_element, intrinsic_size);
             let flex_basis = if is_row { intrinsic_size.x } else { intrinsic_size.y };
             let flex_grow = if layout.grow { 1.0 } else { 0.0 };
@@ -337,7 +337,7 @@ fn layout_flex_children_with_scale(
     };
     let gap = 0.0; // TODO: Add gap support
     
-    println!("[LAYOUT_FLEX] Positioning {} flex items, remaining_space={}, is_row={}, start_position={}", 
+    eprintln!("[LAYOUT_FLEX] Positioning {} flex items, remaining_space={}, is_row={}, start_position={}", 
         flex_items.len(), remaining_space, is_row, current_position);
     
     for (i, item) in flex_items.iter().enumerate() {
@@ -354,7 +354,7 @@ fn layout_flex_children_with_scale(
                 Vec2::new(cross_axis_pos, current_position)
             };
             
-            println!("[LAYOUT_FLEX] Child {}: main_axis={}, cross_axis={}, cross_axis_pos={}, relative_pos={:?}", 
+            eprintln!("[LAYOUT_FLEX] Child {}: main_axis={}, cross_axis={}, cross_axis_pos={}, relative_pos={:?}", 
                 child.id, current_position, item.cross_axis_size, cross_axis_pos, child_position);
             
             let child_size = if is_row {
@@ -443,7 +443,7 @@ fn layout_flex_children_with_scale(
             LayoutAlignment::End => parent_size - child_size,
             LayoutAlignment::SpaceBetween => 0.0, // Not applicable for cross axis
         };
-        println!("[CROSS_AXIS] child_size={}, parent_size={}, alignment={:?} -> position={}", 
+        eprintln!("[CROSS_AXIS] child_size={}, parent_size={}, alignment={:?} -> position={}", 
             child_size, parent_size, alignment, result);
         result
     }

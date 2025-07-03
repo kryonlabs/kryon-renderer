@@ -55,8 +55,9 @@ pub trait Renderer {
     fn viewport_size(&self) -> Vec2;
 }
 
+
 /// High-level rendering commands
-#[derive(Debug, Clone)]
+/// #[derive(Debug, Clone)]
 pub enum RenderCommand {
     DrawRect {
         position: Vec2,
@@ -85,6 +86,7 @@ pub enum RenderCommand {
         size: Vec2,
     },
     ClearClip,
+    SetCanvasSize(Vec2),
 }
 
 /// Trait for backends that use command-based rendering
@@ -146,7 +148,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
 
         let commands = self.element_to_commands(element, layout, element_id)?;
 
-        println!("[ElementRenderer] For element ID {}, generated {} commands.", element_id, commands.len());
+        eprintln!("[ElementRenderer] For element ID {}, generated {} commands.", element_id, commands.len());
 
         self.backend.execute_commands(context, &commands)?;
 
@@ -172,7 +174,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
         // Calculate position based on parent-child relationships
         let (position, size) = self.calculate_element_layout(element, layout, element_id);
         
-        println!("[POSITION] Element {}: KRB pos={:?}, Layout pos={:?}, Final pos={:?}", 
+        eprintln!("[POSITION] Element {}: KRB pos={:?}, Layout pos={:?}, Final pos={:?}", 
             element_id, element.position, layout.computed_positions.get(&element_id), position);
 
         // Now, use the perfectly computed style values!
@@ -183,7 +185,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
         let mut border_color = style.border_color;
         border_color.w *= element.opacity;
         
-        println!("[element_to_commands] Element {}: bg={:?}, border={:?}, border_width={}, type={:?}",
+        eprintln!("[element_to_commands] Element {}: bg={:?}, border={:?}, border_width={}, type={:?}",
             element.id, bg_color, border_color, border_width, element.element_type);
 
         if border_width == 0.0 && border_color.w > 0.0 {
@@ -252,13 +254,13 @@ impl<R: CommandRenderer> ElementRenderer<R> {
         let layout_position = layout.computed_positions.get(&element_id).copied();
         let layout_size = layout.computed_sizes.get(&element_id).copied();
         
-        println!("[LAYOUT] Element {}: layout_pos={:?}, layout_size={:?}, parent={:?}", 
+        eprintln!("[LAYOUT] Element {}: layout_pos={:?}, layout_size={:?}, parent={:?}", 
             element_id, layout_position, layout_size, element.parent);
         
         // If layout engine has positioned this element, use its position
         if let Some(layout_pos) = layout_position {
             let size = layout_size.unwrap_or(element.size);
-            println!("[LAYOUT] Using layout engine position for element {}: {:?}", element_id, layout_pos);
+            eprintln!("[LAYOUT] Using layout engine position for element {}: {:?}", element_id, layout_pos);
             return (layout_pos, size);
         }
         
@@ -266,7 +268,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
         if let Some(parent_id) = element.parent {
             // Get parent element from style computer
             if let Some(parent_element) = self.style_computer.get_element(parent_id) {
-                println!("[LAYOUT] Parent {} has layout_flags: {:08b}", parent_id, parent_element.layout_flags);
+                eprintln!("[LAYOUT] Parent {} has layout_flags: {:08b}", parent_id, parent_element.layout_flags);
                 // Calculate parent's final position recursively
                 let (parent_pos, parent_size) = self.calculate_element_layout(parent_element, layout, parent_id);
                 

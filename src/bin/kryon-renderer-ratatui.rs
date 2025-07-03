@@ -159,49 +159,49 @@ fn cleanup_terminal() -> Result<()> {
 
 /// The inspection function to diagnose .krb file issues without rendering.
 fn inspect_krb_file(krb_path: &str) -> Result<()> {
-    println!("🔍 Inspecting KRB file: {}", krb_path);
+    eprintln!("🔍 Inspecting KRB file: {}", krb_path);
 
     let krb_file = load_krb_file(krb_path).context("Could not load KRB file for inspection")?;
 
-    println!("📊 File Statistics:");
-    println!("  Root element ID: {:?}", krb_file.root_element_id);
-    println!("  Total elements: {}", krb_file.elements.len());
+    eprintln!("📊 File Statistics:");
+    eprintln!("  Root element ID: {:?}", krb_file.root_element_id);
+    eprintln!("  Total elements: {}", krb_file.elements.len());
 
-    println!("\n📋 Elements (Position and Size):");
+    eprintln!("\n📋 Elements (Position and Size):");
     let mut visible_in_terminal = 0;
     for (id, element) in &krb_file.elements {
-        println!("\n  Element {}: {:?}", id, element.element_type);
-        println!("    Text: {:?}", element.text);
-        println!("    Visible: {}", element.visible);
-        println!("    Position: ({:.1}, {:.1})", element.position.x, element.position.y);
-        println!("    Size: ({:.1}, {:.1})", element.size.x, element.size.y);
-        println!("    Background: {:?}", element.background_color);
+        eprintln!("\n  Element {}: {:?}", id, element.element_type);
+        eprintln!("    Text: {:?}", element.text);
+        eprintln!("    Visible: {}", element.visible);
+        eprintln!("    Position: ({:.1}, {:.1})", element.position.x, element.position.y);
+        eprintln!("    Size: ({:.1}, {:.1})", element.size.x, element.size.y);
+        eprintln!("    Background: {:?}", element.background_color);
 
         // --- DIAGNOSTIC WARNINGS ---
         // Check if the element's top-left corner is within a reasonable terminal grid.
         if element.position.x < 120.0 && element.position.y < 50.0 {
              visible_in_terminal += 1;
         } else {
-            println!("    ⚠️  WARNING: Element position is likely outside typical terminal character bounds!");
+            eprintln!("    ⚠️  WARNING: Element position is likely outside typical terminal character bounds!");
         }
 
         if element.size.x == 0.0 || element.size.y == 0.0 {
-            println!("    ⚠️  WARNING: Element has zero size and will not be visible.");
+            eprintln!("    ⚠️  WARNING: Element has zero size and will not be visible.");
         }
 
         if element.text.is_empty() && element.background_color.w < 0.1 {
-            println!("    ⚠️  WARNING: Element is transparent with no text; likely invisible.");
+            eprintln!("    ⚠️  WARNING: Element is transparent with no text; likely invisible.");
         }
     }
 
-    println!("\n📺 Terminal Compatibility Summary (approx 120x50):");
+    eprintln!("\n📺 Terminal Compatibility Summary (approx 120x50):");
     if visible_in_terminal == 0 {
-        println!("  ❌ No elements appear to be positioned within standard terminal bounds.");
-        println!("     This is the most likely reason nothing is rendering.");
-        println!("     SUGGESTION: Your `kryon-ratatui` renderer needs to remap pixel coordinates to character cells.");
+        eprintln!("  ❌ No elements appear to be positioned within standard terminal bounds.");
+        eprintln!("     This is the most likely reason nothing is rendering.");
+        eprintln!("     SUGGESTION: Your `kryon-ratatui` renderer needs to remap pixel coordinates to character cells.");
     } else {
-        println!("  ✅ {} element(s) are positioned within potential terminal bounds.", visible_in_terminal);
-        println!("     If nothing appears, check for zero-size or invisible elements.");
+        eprintln!("  ✅ {} element(s) are positioned within potential terminal bounds.", visible_in_terminal);
+        eprintln!("     If nothing appears, check for zero-size or invisible elements.");
     }
 
     Ok(())

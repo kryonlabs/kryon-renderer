@@ -60,7 +60,7 @@ impl Renderer for RaylibRenderer {
             
             // Execute all commands without borrowing self
             for command in &commands {
-                println!("[RaylibRenderer] Attempting to draw: {:?}", command);
+                eprintln!("[RaylibRenderer] Attempting to draw: {:?}", command);
 
                 Self::execute_single_command_impl(&mut d, &mut self.textures, command)?;
             }
@@ -264,7 +264,7 @@ fn vec4_to_raylib_color(color: Vec4) -> Color {
     let a = (color.w * 255.0) as u8;
 
     // >>>>>>>>> ADD THIS PRINTLN <<<<<<<<<<<
-    println!("[vec4_to_raylib_color] Final u8 color: r={}, g={}, b={}, a={}", r, g, b, a);
+    eprintln!("[vec4_to_raylib_color] Final u8 color: r={}, g={}, b={}, a={}", r, g, b, a);
     
     Color::new(r, g, b, a)
 }

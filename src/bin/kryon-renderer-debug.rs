@@ -39,7 +39,7 @@ fn main() -> Result<()> {
         anyhow::bail!("KRB file not found: {}", args.krb_file);
     }
 
-    println!("Loading KRB file: {}", args.krb_file);
+    eprintln!("Loading KRB file: {}", args.krb_file);
     
     // Load the KRB file
     let krb_file = kryon_core::load_krb_file(&args.krb_file)
@@ -57,7 +57,7 @@ fn main() -> Result<()> {
     if let Some(output_file) = args.output {
         fs::write(&output_file, output_text)
             .with_context(|| format!("Failed to write to file: {}", output_file))?;
-        println!("Output written to: {}", output_file);
+        eprintln!("Output written to: {}", output_file);
     } else {
         print!("{}", output_text);
     }

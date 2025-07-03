@@ -84,10 +84,10 @@ fn main() -> Result<()> {
     
     // Debug: Check what adapters we have
     let adapters: Vec<_> = instance.enumerate_adapters(wgpu::Backends::all()).into_iter().collect();
-    println!("Available adapters:");
+    eprintln!("Available adapters:");
     for adapter in &adapters {
         let info = adapter.get_info();
-        println!("  - {} ({:?})", info.name, info.backend);
+        eprintln!("  - {} ({:?})", info.name, info.backend);
     }
     
     if adapters.is_empty() {

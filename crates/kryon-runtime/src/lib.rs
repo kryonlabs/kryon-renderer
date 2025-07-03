@@ -80,7 +80,7 @@ impl<R: CommandRenderer> KryonApp<R> {
         // Initialize scripts
         app.script_system.load_scripts(&app.krb_file.scripts)?;
         
-        println!("[KryonApp::new] Loaded KRB. Root element ID: {:?}", app.krb_file.root_element_id);
+        eprintln!("[KryonApp::new] Loaded KRB. Root element ID: {:?}", app.krb_file.root_element_id);
 
 
         Ok(app)
@@ -176,7 +176,7 @@ impl<R: CommandRenderer> KryonApp<R> {
 fn update_layout(&mut self) -> anyhow::Result<()> {
     if let Some(root_id) = self.krb_file.root_element_id {
         // >>>>>>>>> ADD THIS PRINTLN <<<<<<<<<<<
-        println!("[KryonApp] Running layout computation...");
+        eprintln!("[KryonApp] Running layout computation...");
 
         self.layout_result = self.layout_engine.compute_layout(
             &self.elements,
@@ -185,7 +185,7 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
         );
 
         // >>>>>>>>> AND ADD THIS ONE <<<<<<<<<<<
-        println!("[KryonApp] Layout computed. Positions: {}, Sizes: {}",
+        eprintln!("[KryonApp] Layout computed. Positions: {}, Sizes: {}",
             self.layout_result.computed_positions.len(),
             self.layout_result.computed_sizes.len()
         );

@@ -85,7 +85,7 @@ impl KRBParser {
         let style_offset = self.read_u32_at(26) as usize;
         let mut styles = HashMap::new();
         
-        println!("[STYLE] Parsing {} styles from offset 0x{:X}", header.style_count, style_offset);
+        eprintln!("[STYLE] Parsing {} styles from offset 0x{:X}", header.style_count, style_offset);
         
         self.position = style_offset;
         
@@ -100,7 +100,7 @@ impl KRBParser {
                 format!("style_{}", style_id)
             };
 
-            println!("[STYLE] Style {}: name='{}', name_index={}, props={}", style_id, name, name_index, property_count);
+            eprintln!("[STYLE] Style {}: name='{}', name_index={}, props={}", style_id, name, name_index, property_count);
 
             let mut properties = HashMap::new();
             for j in 0..property_count {
@@ -108,7 +108,7 @@ impl KRBParser {
                 let _value_type = self.read_u8(); // We can use this for more robust parsing later
                 let size = self.read_u8();
                 
-                println!("[STYLE]   Property {}: id=0x{:02X}, size={}", j, prop_id, size);
+                eprintln!("[STYLE]   Property {}: id=0x{:02X}, size={}", j, prop_id, size);
                 
                 let value = match prop_id {
                     0x01 | 0x02 | 0x03 => PropertyValue::Color(self.read_color()),
@@ -134,17 +134,17 @@ impl KRBParser {
                     // Add other property types here
                     _ => {
                         // For unknown properties, read the raw bytes and display them
-                        println!("[STYLE]     Unknown property 0x{:02X}, size={}, reading raw bytes...", prop_id, size);
+                        eprintln!("[STYLE]     Unknown property 0x{:02X}, size={}, reading raw bytes...", prop_id, size);
                         let mut raw_bytes = Vec::new();
                         for i in 0..size {
                             let byte = self.read_u8();
                             raw_bytes.push(byte);
-                            println!("[STYLE]       Byte {}: 0x{:02X} ({})", i, byte, byte);
+                            eprintln!("[STYLE]       Byte {}: 0x{:02X} ({})", i, byte, byte);
                         }
                         
                         // Try to interpret as different types
                         if size == 1 {
-                            println!("[STYLE]     Could be layout flags: 0x{:02X}", raw_bytes[0]);
+                            eprintln!("[STYLE]     Could be layout flags: 0x{:02X}", raw_bytes[0]);
                         } else if size == 4 {
                             let color = Vec4::new(
                                 raw_bytes[0] as f32 / 255.0,
@@ -152,7 +152,7 @@ impl KRBParser {
                                 raw_bytes[2] as f32 / 255.0,
                                 raw_bytes[3] as f32 / 255.0
                             );
-                            println!("[STYLE]     Could be color: {:?}", color);
+                            eprintln!("[STYLE]     Could be color: {:?}", color);
                         }
                         continue;
                     }
@@ -160,16 +160,16 @@ impl KRBParser {
                 properties.insert(prop_id, value);
             }
             
-            println!("[STYLE] Loaded style {}: '{}' with {} properties", style_id, name, properties.len());
+            eprintln!("[STYLE] Loaded style {}: '{}' with {} properties", style_id, name, properties.len());
             // Ensure we don't overwrite existing styles with the same ID
             if !styles.contains_key(&style_id) {
                 styles.insert(style_id, Style { name, properties });
             } else {
-                println!("[STYLE] WARNING: Duplicate style ID {} - skipping", style_id);
+                eprintln!("[STYLE] WARNING: Duplicate style ID {} - skipping", style_id);
             }
         }
 
-        println!("[STYLE] Parsed {} styles total", styles.len());
+        eprintln!("[STYLE] Parsed {} styles total", styles.len());
         Ok(styles)
     }
 
@@ -258,18 +258,18 @@ impl KRBParser {
         // Store original layout_flags for later style merging
         let _original_layout_flags = layout_flags;
         
-        println!("[PARSE] Element {}: type={:?}, style_id={}, layout_flags={:08b}, props={}, children={}, custom_props={}", 
+        eprintln!("[PARSE] Element {}: type={:?}, style_id={}, layout_flags={:08b}, props={}, children={}, custom_props={}", 
             element_id, element_type, style_id, layout_flags, property_count, child_count, custom_prop_count);
         
         // Parse standard properties
         for i in 0..property_count {
-            println!("[PARSE] Parsing standard property {} for element {}", i, element_id);
+            eprintln!("[PARSE] Parsing standard property {} for element {}", i, element_id);
             self.parse_standard_property(&mut element, strings)?;
         }
         
         // Parse custom properties  
         for i in 0..custom_prop_count {
-            println!("[PARSE] Parsing custom property {} for element {}", i, element_id);
+            eprintln!("[PARSE] Parsing custom property {} for element {}", i, element_id);
             self.parse_custom_property(&mut element, strings)?;
         }
         
@@ -304,18 +304,18 @@ impl KRBParser {
             0 if child_count > 0 => {
                 // App element should have Container as child
                 element.children = vec![1];
-                println!("[KRB] App element: added child [1]");
+                eprintln!("[KRB] App element: added child [1]");
             }
             1 if child_count > 0 => {
                 // Container element should have Text as child  
                 element.children = vec![2];
                 element.parent = Some(0);
-                println!("[KRB] Container element: added child [2], parent [0]");
+                eprintln!("[KRB] Container element: added child [2], parent [0]");
             }
             2 => {
                 // Text element has no children but has Container as parent
                 element.parent = Some(1);
-                println!("[KRB] Text element: set parent [1]");
+                eprintln!("[KRB] Text element: set parent [1]");
             }
             _ => {
                 element.children = Vec::with_capacity(child_count as usize);
@@ -329,52 +329,52 @@ impl KRBParser {
         let value_type = self.read_u8();
         let size = self.read_u8();
         
-        println!("[PROP] Property ID: 0x{:02X}, value_type: 0x{:02X}, size: {}", property_id, value_type, size);
+        eprintln!("[PROP] Property ID: 0x{:02X}, value_type: 0x{:02X}, size: {}", property_id, value_type, size);
         
         match property_id {
             0x01 => { // BackgroundColor
                 element.background_color = self.read_color();
-                println!("[PROP] BackgroundColor: {:?}", element.background_color);
+                eprintln!("[PROP] BackgroundColor: {:?}", element.background_color);
             }
             0x02 => { // ForegroundColor/TextColor
                 element.text_color = self.read_color();
-                println!("[PROP] TextColor: {:?}", element.text_color);
+                eprintln!("[PROP] TextColor: {:?}", element.text_color);
             }
             0x03 => { // BorderColor
                 element.border_color = self.read_color();
-                println!("[PROP] BorderColor: {:?}", element.border_color);
+                eprintln!("[PROP] BorderColor: {:?}", element.border_color);
             }
             0x04 => { // BorderWidth
                 element.border_width = self.read_u8() as f32;
-                println!("[PROP] BorderWidth: {}", element.border_width);
+                eprintln!("[PROP] BorderWidth: {}", element.border_width);
             }
             0x05 => { // BorderRadius
                 element.border_radius = self.read_u8() as f32;
-                println!("[PROP] BorderRadius: {}", element.border_radius);
+                eprintln!("[PROP] BorderRadius: {}", element.border_radius);
             }
             0x06 => { // Layout flags
                 let layout_value = self.read_u8();
                 element.layout_flags = layout_value;
-                println!("[PROP] Layout: flags=0x{:02X} (binary: {:08b})", layout_value, layout_value);
+                eprintln!("[PROP] Layout: flags=0x{:02X} (binary: {:08b})", layout_value, layout_value);
             }
             0x08 => { // TextContent
                 let string_index = self.read_u8() as usize;
                 if string_index < strings.len() {
                     element.text = strings[string_index].clone();
-                    println!("[PROP] TextContent: '{}'", element.text);
+                    eprintln!("[PROP] TextContent: '{}'", element.text);
                 }
             }
             0x09 => { // FontSize
                 element.font_size = self.read_u16() as f32;
-                println!("[PROP] FontSize: {}", element.font_size);
+                eprintln!("[PROP] FontSize: {}", element.font_size);
             }
             0x0D => { // Opacity
                 element.opacity = self.read_u16() as f32 / 256.0; // 8.8 fixed point
-                println!("[PROP] Opacity: {}", element.opacity);
+                eprintln!("[PROP] Opacity: {}", element.opacity);
             }
             0x0B => { // TextAlignment
                 let alignment = self.read_u8();
-                println!("[PROP] TextAlignment: {}", alignment);
+                eprintln!("[PROP] TextAlignment: {}", alignment);
                 // Apply text alignment to element
                 element.text_alignment = match alignment {
                     0 => TextAlignment::Start,
@@ -386,12 +386,12 @@ impl KRBParser {
             }
             0x0F => { // Visibility
                 element.visible = self.read_u8() != 0;
-                println!("[PROP] Visibility: {}", element.visible);
+                eprintln!("[PROP] Visibility: {}", element.visible);
             }
             // App-specific properties
             0x20 => { // WindowWidth
                 let width = self.read_u16();
-                println!("[PROP] WindowWidth: {}", width);
+                eprintln!("[PROP] WindowWidth: {}", width);
                 // App elements use this for initial size
                 if element.element_type == ElementType::App {
                     element.size.x = width as f32;
@@ -399,7 +399,7 @@ impl KRBParser {
             }
             0x21 => { // WindowHeight  
                 let height = self.read_u16();
-                println!("[PROP] WindowHeight: {}", height);
+                eprintln!("[PROP] WindowHeight: {}", height);
                 if element.element_type == ElementType::App {
                     element.size.y = height as f32;
                 }
@@ -407,42 +407,42 @@ impl KRBParser {
             0x22 => { // WindowTitle
                 let string_index = self.read_u8() as usize;
                 if string_index < strings.len() {
-                    println!("[PROP] WindowTitle: '{}'", strings[string_index]);
+                    eprintln!("[PROP] WindowTitle: '{}'", strings[string_index]);
                     // Could store in custom properties if needed
                 }
             }
             0x23 => { // Resizable
                 let resizable = self.read_u8() != 0;
-                println!("[PROP] Resizable: {}", resizable);
+                eprintln!("[PROP] Resizable: {}", resizable);
             }
             0x24 => { // KeepAspectRatio
                 let keep_aspect = self.read_u8() != 0;
-                println!("[PROP] KeepAspectRatio: {}", keep_aspect);
+                eprintln!("[PROP] KeepAspectRatio: {}", keep_aspect);
             }
             0x25 => { // ScaleFactor
                 let scale = self.read_u16() as f32 / 256.0; // 8.8 fixed point
-                println!("[PROP] ScaleFactor: {}", scale);
+                eprintln!("[PROP] ScaleFactor: {}", scale);
             }
             0x26 => { // Icon
                 let string_index = self.read_u8() as usize;
                 if string_index < strings.len() {
-                    println!("[PROP] Icon: '{}'", strings[string_index]);
+                    eprintln!("[PROP] Icon: '{}'", strings[string_index]);
                 }
             }
             0x27 => { // Version
                 let string_index = self.read_u8() as usize;
                 if string_index < strings.len() {
-                    println!("[PROP] Version: '{}'", strings[string_index]);
+                    eprintln!("[PROP] Version: '{}'", strings[string_index]);
                 }
             }
             0x28 => { // Author
                 let string_index = self.read_u8() as usize;
                 if string_index < strings.len() {
-                    println!("[PROP] Author: '{}'", strings[string_index]);
+                    eprintln!("[PROP] Author: '{}'", strings[string_index]);
                 }
             }
             _ => {
-                println!("[PROP] Unknown property 0x{:02X}, skipping {} bytes...", property_id, size);
+                eprintln!("[PROP] Unknown property 0x{:02X}, skipping {} bytes...", property_id, size);
                 // Skip unknown property using size field
                 for _ in 0..size {
                     self.read_u8();
@@ -571,7 +571,7 @@ impl KRBParser {
                     if let Some(layout_prop) = layout_prop {
                         if let Some(layout_flags) = layout_prop.as_int() {
                             let new_flags = layout_flags as u8;
-                            println!("[STYLE_LAYOUT] Applying layout flags 0x{:02X} from style '{}' to element", 
+                            eprintln!("[STYLE_LAYOUT] Applying layout flags 0x{:02X} from style '{}' to element", 
                                 new_flags, style_block.name);
                             element.layout_flags = new_flags;
                         }
@@ -581,7 +581,7 @@ impl KRBParser {
                         // From the .kry file: containerstyle has "layout: center"
                         // This should be Column direction (0x01) + Center alignment (0x04) = 0x05
                         element.layout_flags = 0x05;
-                        println!("[STYLE_LAYOUT] Applied layout: center (0x05) to containerstyle element");
+                        eprintln!("[STYLE_LAYOUT] Applied layout: center (0x05) to containerstyle element");
                     }
                     
                 }
@@ -642,34 +642,34 @@ pub fn load_krb_file(path: &str) -> Result<KRBFile> {
     let krb_file = parser.parse()?;
     
     // DEBUG: Print everything we parsed
-    println!("=== KRB FILE DEBUG ===");
-    println!("Header: element_count={}, style_count={}, string_count={}", 
+    eprintln!("=== KRB FILE DEBUG ===");
+    eprintln!("Header: element_count={}, style_count={}, string_count={}", 
         krb_file.header.element_count, krb_file.header.style_count, krb_file.header.string_count);
     
     // Add explicit style debugging
     if krb_file.header.style_count == 0 {
-        println!("WARNING: No styles found in KRB file! This means:");
-        println!("  - Styles were not compiled into the KRB");
-        println!("  - Elements will use default colors (black text, transparent backgrounds)");
-        println!("  - The original .kry file styles were lost during compilation");
+        eprintln!("WARNING: No styles found in KRB file! This means:");
+        eprintln!("  - Styles were not compiled into the KRB");
+        eprintln!("  - Elements will use default colors (black text, transparent backgrounds)");
+        eprintln!("  - The original .kry file styles were lost during compilation");
     }
     
-    println!("Strings ({}):", krb_file.strings.len());
+    eprintln!("Strings ({}):", krb_file.strings.len());
     for (i, s) in krb_file.strings.iter().enumerate() {
-        println!("  [{}]: '{}'", i, s);
+        eprintln!("  [{}]: '{}'", i, s);
     }
     
-    println!("Elements ({}):", krb_file.elements.len());
+    eprintln!("Elements ({}):", krb_file.elements.len());
     for (id, element) in &krb_file.elements {
-        println!("  [{}]: type={:?}, id='{}', pos=({:.1},{:.1}), size=({:.1},{:.1}), children={}, text='{}'",
+        eprintln!("  [{}]: type={:?}, id='{}', pos=({:.1},{:.1}), size=({:.1},{:.1}), children={}, text='{}'",
             id, element.element_type, element.id, 
             element.position.x, element.position.y,
             element.size.x, element.size.y,
             element.children.len(), element.text);
     }
     
-    println!("Root element ID: {:?}", krb_file.root_element_id);
-    println!("=== END DEBUG ===");
+    eprintln!("Root element ID: {:?}", krb_file.root_element_id);
+    eprintln!("=== END DEBUG ===");
     
     Ok(krb_file)
 }

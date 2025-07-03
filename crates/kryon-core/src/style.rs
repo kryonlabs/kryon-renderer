@@ -62,7 +62,7 @@ impl StyleComputer {
         let element = self.elements.get(&element_id)
             .expect("Element ID must exist");
 
-        println!("[StyleComputer] Computing style for element {}: style_id={}", element_id, element.style_id);
+        eprintln!("[StyleComputer] Computing style for element {}: style_id={}", element_id, element.style_id);
 
         // STEP 1: Get Parent's Computed Style (Inheritance)
         // If the element has a parent, compute its style first and use it as the base.
@@ -80,43 +80,43 @@ impl StyleComputer {
             ComputedStyle::default()
         };
 
-        println!("[StyleComputer]   Base style: bg={:?}, text={:?}, border={:?}", 
+        eprintln!("[StyleComputer]   Base style: bg={:?}, text={:?}, border={:?}", 
             computed_style.background_color, computed_style.text_color, computed_style.border_color);
 
         // STEP 2: Apply Its Own Style Block
         if element.style_id > 0 {
             if let Some(style_block) = self.styles.get(&element.style_id) {
-                println!("[StyleComputer]   Found style block '{}' with {} properties", style_block.name, style_block.properties.len());
+                eprintln!("[StyleComputer]   Found style block '{}' with {} properties", style_block.name, style_block.properties.len());
                 // Apply all properties from the referenced style block
                 for (prop_id, prop_value) in &style_block.properties {
                     match *prop_id {
                         0x01 => if let Some(c) = prop_value.as_color() { 
                             computed_style.background_color = c; 
-                            println!("[StyleComputer]     Applied background_color: {:?}", c);
+                            eprintln!("[StyleComputer]     Applied background_color: {:?}", c);
                         }
                         0x02 => if let Some(c) = prop_value.as_color() { 
                             computed_style.text_color = c; 
-                            println!("[StyleComputer]     Applied text_color: {:?}", c);
+                            eprintln!("[StyleComputer]     Applied text_color: {:?}", c);
                         }
                         0x03 => if let Some(c) = prop_value.as_color() { 
                             computed_style.border_color = c; 
-                            println!("[StyleComputer]     Applied border_color: {:?}", c);
+                            eprintln!("[StyleComputer]     Applied border_color: {:?}", c);
                         }
                         0x04 => if let Some(f) = prop_value.as_float() { 
                             computed_style.border_width = f; 
-                            println!("[StyleComputer]     Applied border_width: {}", f);
+                            eprintln!("[StyleComputer]     Applied border_width: {}", f);
                         }
                         0x05 => if let Some(f) = prop_value.as_float() { 
                             computed_style.border_radius = f; 
-                            println!("[StyleComputer]     Applied border_radius: {}", f);
+                            eprintln!("[StyleComputer]     Applied border_radius: {}", f);
                         }
                         _ => { 
-                            println!("[StyleComputer]     Ignored property 0x{:02X}", prop_id);
+                            eprintln!("[StyleComputer]     Ignored property 0x{:02X}", prop_id);
                         }
                     }
                 }
             } else {
-                println!("[StyleComputer]   Style block {} not found!", element.style_id);
+                eprintln!("[StyleComputer]   Style block {} not found!", element.style_id);
             }
         }
         
