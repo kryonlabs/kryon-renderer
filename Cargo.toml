@@ -84,6 +84,7 @@ thiserror = "1.0"
 bytemuck = { version = "1.14", features = ["derive"] }
 glam = "0.25"
 tracing = "0.1"
+bitflags = "2.5" 
 
 # Rendering
 wgpu = "0.19"

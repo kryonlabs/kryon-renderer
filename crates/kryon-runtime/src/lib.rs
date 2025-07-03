@@ -51,15 +51,8 @@ impl<R: CommandRenderer> KryonApp<R> {
         // Link parent-child relationships
         Self::link_element_hierarchy(&mut elements, &krb_file)?;
         
-        // DEBUG: Log all elements after loading
-        eprintln!("[RUNTIME_DEBUG] Elements after loading:");
-        for (element_id, element) in &elements {
-            eprintln!("  Element {}: type={:?}, pos=({:.1}, {:.1}), size=({:.1}, {:.1}), visible={}, state={:?}", 
-                element_id, element.element_type, element.position.x, element.position.y, 
-                element.size.x, element.size.y, element.visible, element.current_state);
-        }
         
-        let layout_engine = FlexboxLayoutEngine::new().with_debug(true);
+        let layout_engine = FlexboxLayoutEngine::new();
         let renderer = ElementRenderer::new(renderer, style_computer.clone());
         let viewport_size = renderer.viewport_size();
         
@@ -91,8 +84,6 @@ impl<R: CommandRenderer> KryonApp<R> {
         // Force initial layout computation
         app.update_layout()?;
         
-        eprintln!("[KryonApp::new] Loaded KRB. Root element ID: {:?}", app.krb_file.root_element_id);
-        eprintln!("[KryonApp::new] Viewport size: ({:.1}, {:.1})", app.viewport_size.x, app.viewport_size.y);
 
 
         Ok(app)
@@ -155,7 +146,6 @@ impl<R: CommandRenderer> KryonApp<R> {
         if self.frame_count % 60 == 0 {
             let fps = 1.0 / frame_time.as_secs_f32();
             tracing::debug!("FPS: {:.1}", fps);
-            eprintln!("[RUNTIME_DEBUG] Frame {} rendered, FPS: {:.1}", self.frame_count, fps);
         }
         
         Ok(())
@@ -190,33 +180,31 @@ impl<R: CommandRenderer> KryonApp<R> {
 
 fn update_layout(&mut self) -> anyhow::Result<()> {
     if let Some(root_id) = self.krb_file.root_element_id {
-        // >>>>>>>>> ADD THIS PRINTLN <<<<<<<<<<<
-        eprintln!("[KryonApp] Running layout computation...");
-
         self.layout_result = self.layout_engine.compute_layout(
             &self.elements,
             root_id,
             self.viewport_size,
         );
-
-        // >>>>>>>>> AND ADD THIS ONE <<<<<<<<<<<
-        eprintln!("[KryonApp] Layout computed. Positions: {}, Sizes: {}",
-            self.layout_result.computed_positions.len(),
-            self.layout_result.computed_sizes.len()
-        );
-        
-        // DEBUG: Log computed positions and sizes
-        for (element_id, pos) in &self.layout_result.computed_positions {
-            let size = self.layout_result.computed_sizes.get(element_id).copied().unwrap_or(Vec2::ZERO);
-            eprintln!("[LAYOUT_DEBUG] Element {}: computed pos=({:.1}, {:.1}), size=({:.1}, {:.1})", 
-                element_id, pos.x, pos.y, size.x, size.y);
-        }
     }
     Ok(())
 }
 
     fn handle_mouse_move(&mut self, position: Vec2) -> anyhow::Result<()> {
         let hovered_element = self.find_element_at_position(position);
+        
+        // Determine the cursor type for the hovered element
+        let cursor_type = if let Some(element_id) = hovered_element {
+            if let Some(element) = self.elements.get(&element_id) {
+                element.cursor
+            } else {
+                kryon_core::CursorType::Default
+            }
+        } else {
+            kryon_core::CursorType::Default
+        };
+        
+        // Update the cursor through the renderer
+        self.renderer.backend_mut().set_cursor(cursor_type);
         
         // Update hover states
         for (element_id, element) in self.elements.iter_mut() {
@@ -282,6 +270,8 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
     
     fn find_element_at_position(&self, position: Vec2) -> Option<ElementId> {
         // Find the topmost element at the given position
+        let mut found_elements = Vec::new();
+        
         for (element_id, element) in &self.elements {
             if !element.visible {
                 continue;
@@ -301,10 +291,12 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
                 && position.y >= element_pos.y
                 && position.y <= element_pos.y + element_size.y
             {
-                return Some(*element_id);
+                found_elements.push(*element_id);
             }
         }
-        None
+        
+        // Return the highest element ID (topmost)
+        found_elements.into_iter().max()
     }
     
     pub fn get_element(&self, id: &str) -> Option<&Element> {

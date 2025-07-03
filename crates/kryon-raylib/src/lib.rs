@@ -2,9 +2,11 @@
 use kryon_render::{
     Renderer, CommandRenderer, RenderCommand, RenderResult, InputEvent, MouseButton, KeyCode, KeyModifiers
 };
+use kryon_core::CursorType;
 use kryon_layout::LayoutResult;
 use glam::{Vec2, Vec4};
 use raylib::prelude::*;
+use raylib::ffi;
 use std::collections::HashMap;
 
 pub struct RaylibRenderer {
@@ -14,6 +16,7 @@ pub struct RaylibRenderer {
     textures: HashMap<String, Texture2D>,
     pending_commands: Vec<RenderCommand>,
     prev_mouse_pos: Vec2,
+    current_cursor: CursorType,
 }
 
 pub struct RaylibRenderContext {
@@ -46,6 +49,7 @@ impl Renderer for RaylibRenderer {
             textures: HashMap::new(),
             pending_commands: Vec::new(),
             prev_mouse_pos: Vec2::new(-1.0, -1.0), // Initialize to invalid position
+            current_cursor: CursorType::Default,
         })
     }
     
@@ -68,7 +72,6 @@ impl Renderer for RaylibRenderer {
             
             // Execute all commands without borrowing self
             for command in &commands {
-                eprintln!("[RaylibRenderer] Attempting to draw: {:?}", command);
 
                 Self::execute_single_command_impl(&mut d, &mut self.textures, command)?;
             }
@@ -110,6 +113,10 @@ impl CommandRenderer for RaylibRenderer {
         self.pending_commands.extend_from_slice(commands);
         Ok(())
     }
+    
+    fn set_cursor(&mut self, cursor_type: CursorType) {
+        self.set_cursor_internal(cursor_type);
+    }
 }
 
 impl RaylibRenderer {
@@ -122,8 +129,38 @@ impl RaylibRenderer {
         Ok(())
     }
     
+    pub fn get_handle(&self) -> &RaylibHandle {
+        &self.handle
+    }
+    
+    /// Manually poll input events from the OS - this is what EndDrawing() normally does
+    pub fn poll_input_events_from_os(&mut self) {
+        unsafe {
+            // Call the same function that raylib's EndDrawing() calls
+            ffi::PollInputEvents();
+        }
+    }
+    
+    /// Set the mouse cursor type
+    pub fn set_cursor_internal(&mut self, cursor_type: CursorType) {
+        if self.current_cursor != cursor_type {
+            match cursor_type {
+                CursorType::Default => self.handle.set_mouse_cursor(MouseCursor::MOUSE_CURSOR_DEFAULT),
+                CursorType::Pointer => self.handle.set_mouse_cursor(MouseCursor::MOUSE_CURSOR_POINTING_HAND),
+                CursorType::Text => self.handle.set_mouse_cursor(MouseCursor::MOUSE_CURSOR_IBEAM),
+                CursorType::Move => self.handle.set_mouse_cursor(MouseCursor::MOUSE_CURSOR_RESIZE_ALL),
+                CursorType::NotAllowed => self.handle.set_mouse_cursor(MouseCursor::MOUSE_CURSOR_NOT_ALLOWED),
+            }
+            self.current_cursor = cursor_type;
+        }
+    }
+    
     pub fn poll_input_events(&mut self) -> Vec<InputEvent> {
+        // CRITICAL: Poll input events from OS FIRST before querying any input state
+        self.poll_input_events_from_os();
+        
         let mut events = Vec::new();
+        
         
         // Handle window resize
         if self.handle.is_window_resized() {
@@ -134,68 +171,21 @@ impl RaylibRenderer {
             events.push(InputEvent::Resize { size: new_size });
         }
         
-        // Handle mouse events - READ POSITION EVERY FRAME
-        // Force fresh read by clearing any potential cache
+        // Handle mouse position - read fresh every frame
+        let mouse_pos = Vec2::new(
+            self.handle.get_mouse_x() as f32,
+            self.handle.get_mouse_y() as f32
+        );
         
-        // Method 1: Standard position
-        let raw_mouse_x = self.handle.get_mouse_x() as f32;
-        let raw_mouse_y = self.handle.get_mouse_y() as f32;
-        
-        // Method 2: Use raylib vector directly
-        let raylib_mouse_vec = self.handle.get_mouse_position();
-        
-        // Method 3: Use mouse delta for tracking
-        let mouse_delta = self.handle.get_mouse_delta();
-        
-        // Use the raylib vector method instead of separate x/y calls
-        let mouse_pos = Vec2::new(raylib_mouse_vec.x, raylib_mouse_vec.y);
-        
-        // Check if mouse is on screen and window has focus
-        let is_on_screen = self.handle.is_cursor_on_screen();
-        let window_focused = self.handle.is_window_focused();
-        
-        // DEBUG - Log mouse position changes and window state
-        static mut FRAME_COUNT: u32 = 0;
-        unsafe { FRAME_COUNT += 1; }
-        
-        // ALWAYS log mouse position every frame
-        eprintln!("Mouse: ({:.1}, {:.1})", mouse_pos.x, mouse_pos.y);
-        
-        // Generate mouse move events for ANY position change (no threshold)
-        let is_first_read = self.prev_mouse_pos.x < 0.0;
-        let mouse_moved = mouse_pos != self.prev_mouse_pos;
-        let has_delta = mouse_delta.x != 0.0 || mouse_delta.y != 0.0;
-        
-        // Use delta as backup detection method
-        if mouse_moved || is_first_read || has_delta {
-            if mouse_moved {
-                eprintln!("[MOUSE_DEBUG] *** MOUSE MOVED *** from ({:.1}, {:.1}) to ({:.1}, {:.1})", 
-                    self.prev_mouse_pos.x, self.prev_mouse_pos.y, mouse_pos.x, mouse_pos.y);
-            }
-            if has_delta {
-                eprintln!("[MOUSE_DEBUG] *** MOUSE DELTA *** delta: ({:.1}, {:.1})", mouse_delta.x, mouse_delta.y);
-                // If we have delta but no position change, compute new position from delta
-                if !mouse_moved && has_delta {
-                    let new_pos = Vec2::new(
-                        self.prev_mouse_pos.x + mouse_delta.x,
-                        self.prev_mouse_pos.y + mouse_delta.y
-                    );
-                    eprintln!("[MOUSE_DEBUG] Using delta-computed position: ({:.1}, {:.1})", new_pos.x, new_pos.y);
-                    events.push(InputEvent::MouseMove { position: new_pos });
-                    self.prev_mouse_pos = new_pos;
-                } else {
-                    events.push(InputEvent::MouseMove { position: mouse_pos });
-                    self.prev_mouse_pos = mouse_pos;
-                }
-            } else {
-                events.push(InputEvent::MouseMove { position: mouse_pos });
-                self.prev_mouse_pos = mouse_pos;
-            }
+        // Generate mouse move events if position changed OR if this is the first time reading mouse position
+        let is_first_mouse_read = self.prev_mouse_pos.x < 0.0; // Initial position is (-1, -1)
+        if mouse_pos != self.prev_mouse_pos || is_first_mouse_read {
+            events.push(InputEvent::MouseMove { position: mouse_pos });
+            self.prev_mouse_pos = mouse_pos;
         }
         
-        // Mouse buttons - use current mouse position
+        // Mouse button events
         if self.handle.is_mouse_button_pressed(raylib::consts::MouseButton::MOUSE_BUTTON_LEFT) {
-            eprintln!("[MOUSE_DEBUG] *** MOUSE PRESS *** at ({:.1}, {:.1})", mouse_pos.x, mouse_pos.y);
             events.push(InputEvent::MousePress {
                 position: mouse_pos,
                 button: MouseButton::Left,
@@ -223,8 +213,8 @@ impl RaylibRenderer {
             });
         }
         
-        // Keyboard events
-        if let Some(key) = self.handle.get_key_pressed() {
+        // Keyboard events - check ALL keys that might be pressed
+        while let Some(key) = self.handle.get_key_pressed() {
             if let Some(kryon_key) = raylib_key_to_kryon_key(key) {
                 events.push(InputEvent::KeyPress {
                     key: kryon_key,
@@ -350,9 +340,6 @@ fn vec4_to_raylib_color(color: Vec4) -> Color {
     let b = (color.z * 255.0) as u8;
     let a = (color.w * 255.0) as u8;
 
-    // >>>>>>>>> ADD THIS PRINTLN <<<<<<<<<<<
-    eprintln!("[vec4_to_raylib_color] Final u8 color: r={}, g={}, b={}, a={}", r, g, b, a);
-    
     Color::new(r, g, b, a)
 }
 

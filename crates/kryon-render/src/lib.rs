@@ -85,6 +85,11 @@ pub trait CommandRenderer: Renderer {
         context: &mut Self::Context,
         commands: &[RenderCommand],
     ) -> RenderResult<()>;
+    
+    /// Set the mouse cursor type (optional - some backends may not support this)
+    fn set_cursor(&mut self, _cursor_type: kryon_core::CursorType) {
+        // Default implementation does nothing
+    }
 }
 
 /// The bridge between the scene graph and the rendering backend.
@@ -122,13 +127,11 @@ impl<R: CommandRenderer> ElementRenderer<R> {
             let canvas_size = root_element.size;
             if canvas_size.x > 0.0 && canvas_size.y > 0.0 {
                 all_commands.push(RenderCommand::SetCanvasSize(canvas_size));
-                eprintln!("[ElementRenderer] Queued SetCanvasSize command: {:?}", canvas_size);
             }
 
             // Recursively fill the command list from the element tree.
             self.collect_render_commands(&mut all_commands, elements, layout, root_id, root_element)?;
 
-            eprintln!("[ElementRenderer] Executing a batch of {} commands for the frame.", all_commands.len());
             self.backend.execute_commands(&mut context, &all_commands)?;
         }
 

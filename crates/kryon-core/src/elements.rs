@@ -29,7 +29,7 @@ impl From<u8> for ElementType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InteractionState {
     Normal = 0,
     Hover = 1,

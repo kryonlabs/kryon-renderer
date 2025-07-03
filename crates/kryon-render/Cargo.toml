@@ -10,3 +10,4 @@ kryon-layout = { path = "../kryon-layout" }
 glam = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+bitflags = { workspace = true }

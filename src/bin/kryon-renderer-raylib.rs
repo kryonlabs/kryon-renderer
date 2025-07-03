@@ -105,13 +105,26 @@ fn main() -> Result<()> {
     let mut app = KryonApp::new(&args.krb_file, renderer)
         .context("Failed to create Kryon application")?;
 
+    // Force initial mouse position update to establish initial hover state
+    let initial_events = app.renderer_mut().backend_mut().poll_input_events();
+    for event in initial_events {
+        if let Err(e) = app.handle_input(event) {
+            error!("Failed to handle initial input event: {}", e);
+        }
+    }
+    
+    // Force initial render to apply any hover state changes
+    if let Err(e) = app.render() {
+        error!("Failed to render initial frame: {}", e);
+    }
+
     info!("Starting Raylib render loop...");
     
     let mut last_frame_time = Instant::now();
     let start_time = Instant::now();
     let mut screenshot_taken = false;
     
-    loop {
+    'main_loop: loop {
         // Check if window should close
         if app.renderer().backend().should_close() {
             info!("Window close requested");
@@ -124,11 +137,15 @@ fn main() -> Result<()> {
         
         // Poll and handle input events
         let input_events = app.renderer_mut().backend_mut().poll_input_events();
-        if !input_events.is_empty() {
-            eprintln!("[MAIN_DEBUG] *** GOT {} INPUT EVENTS ***", input_events.len());
-        }
         for event in input_events {
-            eprintln!("[MAIN_DEBUG] Processing input event: {:?}", event);
+            // Check for ESC key to quit application
+            if let kryon_render::InputEvent::KeyPress { key, .. } = &event {
+                if matches!(key, kryon_render::KeyCode::Escape) {
+                    info!("ESC key pressed - quitting application");
+                    break 'main_loop;
+                }
+            }
+            
             if let Err(e) = app.handle_input(event) {
                 error!("Failed to handle input event: {}", e);
             }
