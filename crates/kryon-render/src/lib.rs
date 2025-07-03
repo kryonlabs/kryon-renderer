@@ -1,11 +1,10 @@
 // crates/kryon-render/src/lib.rs
 
-use anyhow::Result;
 use kryon_core::{
     Element, ElementId, ElementType, TextAlignment,
-    StyleComputer, ComputedStyle
+    StyleComputer
 };
-use kryon_layout::{LayoutResult, LayoutFlags, LayoutAlignment};
+use kryon_layout::LayoutResult;
 use glam::{Vec2, Vec4};
 use std::collections::HashMap;
 
