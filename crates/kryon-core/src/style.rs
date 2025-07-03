@@ -54,6 +54,11 @@ impl StyleComputer {
     }
     /// Computes the final style for a given element, using caching for performance.
     pub fn compute(&self, element_id: ElementId) -> ComputedStyle {
+        self.compute_with_state(element_id, crate::InteractionState::Normal)
+    }
+    
+    /// Computes the final style for a given element in a specific interaction state.
+    pub fn compute_with_state(&self, element_id: ElementId, state: crate::InteractionState) -> ComputedStyle {
         // If style is already computed, return it from cache.
         if let Some(cached_style) = self.cache.borrow().get(&element_id) {
             return *cached_style;
@@ -68,7 +73,9 @@ impl StyleComputer {
         // If the element has a parent, compute its style first and use it as the base.
         // Only inherit text color, not borders (which are component-specific)
         let mut computed_style = if let Some(parent_id) = element.parent {
+            eprintln!("[StyleComputer]   Element has parent: {}", parent_id);
             let parent_style = self.compute(parent_id);
+            eprintln!("[StyleComputer]   Parent style: text_color={:?}", parent_style.text_color);
             ComputedStyle {
                 text_color: parent_style.text_color, // Inherit text color
                 background_color: Vec4::ZERO, // Don't inherit background
@@ -77,6 +84,7 @@ impl StyleComputer {
                 border_radius: 0.0, // Don't inherit border
             }
         } else {
+            eprintln!("[StyleComputer]   Element has no parent");
             ComputedStyle::default()
         };
 
@@ -130,6 +138,22 @@ impl StyleComputer {
         if element.border_width != 0.0 { computed_style.border_width = element.border_width; }
         if element.border_radius != 0.0 { computed_style.border_radius = element.border_radius; }
 
+        // STEP 4: Auto-apply border width when border color is set but width is not
+        if computed_style.border_color.w > 0.0 && computed_style.border_width == 0.0 {
+            computed_style.border_width = 1.0;
+            eprintln!("[StyleComputer]   Auto-applied border_width: 1.0 (border_color is set)");
+        }
+
+        // STEP 5: Apply default hover effects for buttons
+        if element.element_type == crate::ElementType::Button && state == crate::InteractionState::Hover {
+            // Generate automatic hover color by lightening the background
+            if computed_style.background_color.w > 0.0 {
+                let original_color = computed_style.background_color;
+                computed_style.background_color = Self::lighten_color(computed_style.background_color, 0.15);
+                eprintln!("[StyleComputer]   Auto-applied hover effect (lightened background)");
+            }
+        }
+
         // Store the final computed style in the cache and return it.
         self.cache.borrow_mut().insert(element_id, computed_style);
         computed_style
@@ -138,5 +162,15 @@ impl StyleComputer {
     /// Get an element by ID
     pub fn get_element(&self, element_id: ElementId) -> Option<&Element> {
         self.elements.get(&element_id)
+    }
+    
+    /// Lightens a color by a given factor (0.0 = no change, 1.0 = white)
+    fn lighten_color(color: Vec4, factor: f32) -> Vec4 {
+        Vec4::new(
+            (color.x + (1.0 - color.x) * factor).min(1.0),
+            (color.y + (1.0 - color.y) * factor).min(1.0),
+            (color.z + (1.0 - color.z) * factor).min(1.0),
+            color.w, // Keep alpha unchanged
+        )
     }
 }

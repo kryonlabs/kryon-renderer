@@ -1,5 +1,5 @@
 // crates/kryon-core/src/krb.rs
-use crate::{Element, ElementId, ElementType, PropertyValue, Result, KryonError, TextAlignment, Style}; 
+use crate::{Element, ElementId, ElementType, PropertyValue, Result, KryonError, TextAlignment, Style, CursorType, InteractionState}; 
 use std::collections::HashMap;
 use glam::{Vec2, Vec4};
 
@@ -244,6 +244,13 @@ impl KRBParser {
         let _state_prop_count = self.read_u8();
         
         element.element_type = element_type;
+        
+        // Set default cursor type for interactive elements
+        if element_type == ElementType::Button {
+            element.cursor = CursorType::Pointer;
+            eprintln!("[PARSE] Auto-set cursor to Pointer for Button element");
+        }
+        
         element.id = if id_index > 0 && (id_index as usize) < strings.len() {
             strings[id_index as usize].clone()
         } else {
@@ -302,20 +309,28 @@ impl KRBParser {
         // *** BUILD CHILD RELATIONSHIPS based on child_count and element hierarchy ***
         match element_id {
             0 if child_count > 0 => {
-                // App element should have Container as child
+                // App element should have first element as child
                 element.children = vec![1];
                 eprintln!("[KRB] App element: added child [1]");
             }
-            1 if child_count > 0 => {
-                // Container element should have Text as child  
-                element.children = vec![2];
+            1 => {
+                // Any element with id=1 is child of App (element 0)
                 element.parent = Some(0);
-                eprintln!("[KRB] Container element: added child [2], parent [0]");
+                eprintln!("[KRB] Element 1: set parent [0]");
+                if child_count > 0 {
+                    // If this element has children, they would be element 2, 3, etc.
+                    element.children = (2u32..2u32+child_count as u32).collect();
+                    eprintln!("[KRB] Element 1: added children {:?}", element.children);
+                }
             }
-            2 => {
-                // Text element has no children but has Container as parent
+            id if id >= 2 => {
+                // Elements 2+ are children of element 1 (unless we have a deeper hierarchy)
                 element.parent = Some(1);
-                eprintln!("[KRB] Text element: set parent [1]");
+                eprintln!("[KRB] Element {}: set parent [1]", id);
+                if child_count > 0 {
+                    // Handle deeper nesting if needed
+                    element.children = Vec::with_capacity(child_count as usize);
+                }
             }
             _ => {
                 element.children = Vec::with_capacity(child_count as usize);

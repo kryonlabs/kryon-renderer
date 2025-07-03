@@ -13,6 +13,7 @@ pub struct RaylibRenderer {
     size: Vec2,
     textures: HashMap<String, Texture2D>,
     pending_commands: Vec<RenderCommand>,
+    prev_mouse_pos: Vec2,
 }
 
 pub struct RaylibRenderContext {
@@ -32,12 +33,19 @@ impl Renderer for RaylibRenderer {
         
         rl.set_target_fps(60);
         
+        // Enable mouse cursor and ensure window can receive input
+        rl.show_cursor();
+        
+        eprintln!("[RAYLIB_INIT] Window initialized: {}x{}, cursor visible: {}", 
+            width, height, !rl.is_cursor_hidden());
+        
         Ok(Self {
             handle: rl,
             thread,
             size: Vec2::new(width as f32, height as f32),
             textures: HashMap::new(),
             pending_commands: Vec::new(),
+            prev_mouse_pos: Vec2::new(-1.0, -1.0), // Initialize to invalid position
         })
     }
     
@@ -109,6 +117,11 @@ impl RaylibRenderer {
         self.handle.window_should_close()
     }
     
+    pub fn take_screenshot(&mut self, filename: &str) -> RenderResult<()> {
+        self.handle.take_screenshot(&self.thread, filename);
+        Ok(())
+    }
+    
     pub fn poll_input_events(&mut self) -> Vec<InputEvent> {
         let mut events = Vec::new();
         
@@ -121,21 +134,68 @@ impl RaylibRenderer {
             events.push(InputEvent::Resize { size: new_size });
         }
         
-        // Handle mouse events
-        let mouse_pos = Vec2::new(
-            self.handle.get_mouse_x() as f32,
-            self.handle.get_mouse_y() as f32
-        );
+        // Handle mouse events - READ POSITION EVERY FRAME
+        // Force fresh read by clearing any potential cache
         
-        // Mouse movement
-        let _prev_mouse_pos = Vec2::new(
-            self.handle.get_mouse_x() as f32,
-            self.handle.get_mouse_y() as f32
-        );
-        // Note: Raylib doesn't have a direct "mouse moved" event, so we'd need to track this
+        // Method 1: Standard position
+        let raw_mouse_x = self.handle.get_mouse_x() as f32;
+        let raw_mouse_y = self.handle.get_mouse_y() as f32;
         
-        // Mouse buttons
+        // Method 2: Use raylib vector directly
+        let raylib_mouse_vec = self.handle.get_mouse_position();
+        
+        // Method 3: Use mouse delta for tracking
+        let mouse_delta = self.handle.get_mouse_delta();
+        
+        // Use the raylib vector method instead of separate x/y calls
+        let mouse_pos = Vec2::new(raylib_mouse_vec.x, raylib_mouse_vec.y);
+        
+        // Check if mouse is on screen and window has focus
+        let is_on_screen = self.handle.is_cursor_on_screen();
+        let window_focused = self.handle.is_window_focused();
+        
+        // DEBUG - Log mouse position changes and window state
+        static mut FRAME_COUNT: u32 = 0;
+        unsafe { FRAME_COUNT += 1; }
+        
+        // ALWAYS log mouse position every frame
+        eprintln!("Mouse: ({:.1}, {:.1})", mouse_pos.x, mouse_pos.y);
+        
+        // Generate mouse move events for ANY position change (no threshold)
+        let is_first_read = self.prev_mouse_pos.x < 0.0;
+        let mouse_moved = mouse_pos != self.prev_mouse_pos;
+        let has_delta = mouse_delta.x != 0.0 || mouse_delta.y != 0.0;
+        
+        // Use delta as backup detection method
+        if mouse_moved || is_first_read || has_delta {
+            if mouse_moved {
+                eprintln!("[MOUSE_DEBUG] *** MOUSE MOVED *** from ({:.1}, {:.1}) to ({:.1}, {:.1})", 
+                    self.prev_mouse_pos.x, self.prev_mouse_pos.y, mouse_pos.x, mouse_pos.y);
+            }
+            if has_delta {
+                eprintln!("[MOUSE_DEBUG] *** MOUSE DELTA *** delta: ({:.1}, {:.1})", mouse_delta.x, mouse_delta.y);
+                // If we have delta but no position change, compute new position from delta
+                if !mouse_moved && has_delta {
+                    let new_pos = Vec2::new(
+                        self.prev_mouse_pos.x + mouse_delta.x,
+                        self.prev_mouse_pos.y + mouse_delta.y
+                    );
+                    eprintln!("[MOUSE_DEBUG] Using delta-computed position: ({:.1}, {:.1})", new_pos.x, new_pos.y);
+                    events.push(InputEvent::MouseMove { position: new_pos });
+                    self.prev_mouse_pos = new_pos;
+                } else {
+                    events.push(InputEvent::MouseMove { position: mouse_pos });
+                    self.prev_mouse_pos = mouse_pos;
+                }
+            } else {
+                events.push(InputEvent::MouseMove { position: mouse_pos });
+                self.prev_mouse_pos = mouse_pos;
+            }
+        }
+        
+        // Mouse buttons - use current mouse position
         if self.handle.is_mouse_button_pressed(raylib::consts::MouseButton::MOUSE_BUTTON_LEFT) {
+            eprintln!("[MOUSE_DEBUG] *** MOUSE PRESS *** at ({:.1}, {:.1})", mouse_pos.x, mouse_pos.y);
             events.push(InputEvent::MousePress {
                 position: mouse_pos,
                 button: MouseButton::Left,
@@ -218,14 +278,40 @@ impl RaylibRenderer {
                 text,
                 font_size,
                 color,
-                alignment: _,
-                max_width: _,
+                alignment,
+                max_width,
+                max_height,
             } => {
                 let raylib_color = vec4_to_raylib_color(*color);
+                
+                // Calculate text positioning based on alignment
+                let text_width = d.measure_text(text, *font_size as i32) as f32;
+                let text_height = *font_size;
+                
+                let (text_x, text_y) = match alignment {
+                    kryon_core::TextAlignment::Start => (position.x, position.y),
+                    kryon_core::TextAlignment::Center => {
+                        let container_width = max_width.unwrap_or(text_width);
+                        let container_height = max_height.unwrap_or(text_height);
+                        (
+                            position.x + (container_width - text_width) / 2.0,
+                            position.y + (container_height - text_height) / 2.0,
+                        )
+                    },
+                    kryon_core::TextAlignment::End => {
+                        let container_width = max_width.unwrap_or(text_width);
+                        (position.x + container_width - text_width, position.y)
+                    },
+                    kryon_core::TextAlignment::Justify => {
+                        // For justify, treat as start alignment for now (complex justification requires word spacing)
+                        (position.x, position.y)
+                    },
+                };
+                
                 d.draw_text(
                     text,
-                    position.x as i32,
-                    position.y as i32,
+                    text_x as i32,
+                    text_y as i32,
                     *font_size as i32,
                     raylib_color,
                 );

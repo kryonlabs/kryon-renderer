@@ -51,6 +51,14 @@ impl<R: CommandRenderer> KryonApp<R> {
         // Link parent-child relationships
         Self::link_element_hierarchy(&mut elements, &krb_file)?;
         
+        // DEBUG: Log all elements after loading
+        eprintln!("[RUNTIME_DEBUG] Elements after loading:");
+        for (element_id, element) in &elements {
+            eprintln!("  Element {}: type={:?}, pos=({:.1}, {:.1}), size=({:.1}, {:.1}), visible={}, state={:?}", 
+                element_id, element.element_type, element.position.x, element.position.y, 
+                element.size.x, element.size.y, element.visible, element.current_state);
+        }
+        
         let layout_engine = FlexboxLayoutEngine::new().with_debug(true);
         let renderer = ElementRenderer::new(renderer, style_computer.clone());
         let viewport_size = renderer.viewport_size();
@@ -80,7 +88,11 @@ impl<R: CommandRenderer> KryonApp<R> {
         // Initialize scripts
         app.script_system.load_scripts(&app.krb_file.scripts)?;
         
+        // Force initial layout computation
+        app.update_layout()?;
+        
         eprintln!("[KryonApp::new] Loaded KRB. Root element ID: {:?}", app.krb_file.root_element_id);
+        eprintln!("[KryonApp::new] Viewport size: ({:.1}, {:.1})", app.viewport_size.x, app.viewport_size.y);
 
 
         Ok(app)
@@ -132,6 +144,8 @@ impl<R: CommandRenderer> KryonApp<R> {
         self.needs_render = false;
         self.frame_count += 1;
         
+        // Note: Forced hover test removed - hover system confirmed working
+        
         // Update timing
         let now = Instant::now();
         let frame_time = now.duration_since(self.last_frame_time);
@@ -141,6 +155,7 @@ impl<R: CommandRenderer> KryonApp<R> {
         if self.frame_count % 60 == 0 {
             let fps = 1.0 / frame_time.as_secs_f32();
             tracing::debug!("FPS: {:.1}", fps);
+            eprintln!("[RUNTIME_DEBUG] Frame {} rendered, FPS: {:.1}", self.frame_count, fps);
         }
         
         Ok(())
@@ -189,6 +204,13 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
             self.layout_result.computed_positions.len(),
             self.layout_result.computed_sizes.len()
         );
+        
+        // DEBUG: Log computed positions and sizes
+        for (element_id, pos) in &self.layout_result.computed_positions {
+            let size = self.layout_result.computed_sizes.get(element_id).copied().unwrap_or(Vec2::ZERO);
+            eprintln!("[LAYOUT_DEBUG] Element {}: computed pos=({:.1}, {:.1}), size=({:.1}, {:.1})", 
+                element_id, pos.x, pos.y, size.x, size.y);
+        }
     }
     Ok(())
 }

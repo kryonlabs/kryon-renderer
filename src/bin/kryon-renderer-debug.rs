@@ -68,6 +68,26 @@ fn main() -> Result<()> {
 fn generate_tree_output(krb_file: &kryon_core::KRBFile, args: &Args) -> Result<String> {
     let mut output = String::new();
     
+    // Show file overview first
+    output.push_str(&format!("=== KRB FILE OVERVIEW ===\n"));
+    output.push_str(&format!("Elements: {}, Styles: {}, Strings: {}\n", 
+        krb_file.elements.len(), krb_file.styles.len(), krb_file.strings.len()));
+    output.push_str(&format!("Root Element: {:?}\n\n", krb_file.root_element_id));
+    
+    // Show styles summary
+    if !krb_file.styles.is_empty() {
+        output.push_str("=== STYLES SUMMARY ===\n");
+        for (style_id, style) in &krb_file.styles {
+            output.push_str(&format!("Style {}: '{}' ({} properties)\n", 
+                style_id, style.name, style.properties.len()));
+            for (prop_id, prop_value) in &style.properties {
+                output.push_str(&format!("  Property 0x{:02X}: {:?}\n", prop_id, prop_value));
+            }
+        }
+        output.push_str("\n");
+    }
+    
+    output.push_str("=== ELEMENT TREE ===\n");
     if let Some(root_id) = krb_file.root_element_id {
         render_element_tree(&mut output, krb_file, root_id, 0, args, true)?;
     } else {
@@ -144,6 +164,43 @@ fn render_element_tree(
             }
         }
         
+        // Show border if present OR if border_color is set (should auto-apply width)
+        if element.border_width > 0.0 || element.border_color.w > 0.0 {
+            let width = if element.border_width > 0.0 { element.border_width } else { 1.0 }; // Default width
+            if args.show_colors && element.border_color.w > 0.0 {
+                inline_props.push(format!("border:{}px #{:02X}{:02X}{:02X}{:02X}", 
+                    width,
+                    (element.border_color.x * 255.0) as u8,
+                    (element.border_color.y * 255.0) as u8,
+                    (element.border_color.z * 255.0) as u8,
+                    (element.border_color.w * 255.0) as u8));
+            } else if element.border_color.w > 0.0 {
+                inline_props.push(format!("border:{}px", width));
+            } else if element.border_width > 0.0 {
+                inline_props.push(format!("border:{}px", element.border_width));
+            }
+        }
+        
+        // Show border radius if present
+        if element.border_radius > 0.0 {
+            inline_props.push(format!("radius:{}", element.border_radius));
+        }
+        
+        // Show opacity if not 1.0
+        if element.opacity != 1.0 {
+            inline_props.push(format!("opacity:{:.2}", element.opacity));
+        }
+        
+        // Show visibility if hidden
+        if !element.visible {
+            inline_props.push("hidden".to_string());
+        }
+        
+        // Show disabled state
+        if element.disabled {
+            inline_props.push("disabled".to_string());
+        }
+        
         if !inline_props.is_empty() {
             output.push_str(&format!(" [{}]", inline_props.join(" ")));
         }
@@ -158,29 +215,124 @@ fn render_element_tree(
                 &format!("{}    ", "│   ".repeat(depth))
             };
             
+            // Show style inheritance information
+            if element.style_id != 0 {
+                if let Some(style) = krb_file.styles.get(&element.style_id) {
+                    output.push_str(&format!("{}• Applied style: '{}' (id: {})\n", prop_indent, style.name, element.style_id));
+                    for (prop_id, prop_value) in &style.properties {
+                        output.push_str(&format!("{}  - Style property 0x{:02X}: {:?}\n", prop_indent, prop_id, prop_value));
+                    }
+                }
+            }
+            
+            // Show computed final values vs original values
+            output.push_str(&format!("{}• COMPUTED FINAL VALUES:\n", prop_indent));
+            
             // Show various element properties
             if !element.text.is_empty() {
                 output.push_str(&format!("{}• text: \"{}\"\n", prop_indent, element.text));
             }
-            if element.font_size != 16.0 {
+            if element.font_size != 14.0 {  // Default is 14.0, not 16.0
                 output.push_str(&format!("{}• font_size: {}\n", prop_indent, element.font_size));
             }
+            if element.font_weight != kryon_core::FontWeight::Normal {
+                output.push_str(&format!("{}• font_weight: {:?}\n", prop_indent, element.font_weight));
+            }
+            if element.text_alignment != kryon_core::TextAlignment::Start {
+                output.push_str(&format!("{}• text_alignment: {:?}\n", prop_indent, element.text_alignment));
+            }
+            
+            // Visual properties
+            if element.background_color.w > 0.0 {
+                if args.show_colors {
+                    output.push_str(&format!("{}• background_color: #{:02X}{:02X}{:02X}{:02X}\n", 
+                        prop_indent,
+                        (element.background_color.x * 255.0) as u8,
+                        (element.background_color.y * 255.0) as u8,
+                        (element.background_color.z * 255.0) as u8,
+                        (element.background_color.w * 255.0) as u8));
+                } else {
+                    output.push_str(&format!("{}• background_color: set\n", prop_indent));
+                }
+            }
+            if element.text_color != glam::Vec4::new(0.0, 0.0, 0.0, 1.0) {
+                if args.show_colors {
+                    output.push_str(&format!("{}• text_color: #{:02X}{:02X}{:02X}{:02X}\n", 
+                        prop_indent,
+                        (element.text_color.x * 255.0) as u8,
+                        (element.text_color.y * 255.0) as u8,
+                        (element.text_color.z * 255.0) as u8,
+                        (element.text_color.w * 255.0) as u8));
+                } else {
+                    output.push_str(&format!("{}• text_color: set\n", prop_indent));
+                }
+            }
+            
+            // Border properties
             if element.border_width > 0.0 {
                 output.push_str(&format!("{}• border_width: {}\n", prop_indent, element.border_width));
+                if element.border_color.w > 0.0 {
+                    if args.show_colors {
+                        output.push_str(&format!("{}• border_color: #{:02X}{:02X}{:02X}{:02X}\n", 
+                            prop_indent,
+                            (element.border_color.x * 255.0) as u8,
+                            (element.border_color.y * 255.0) as u8,
+                            (element.border_color.z * 255.0) as u8,
+                            (element.border_color.w * 255.0) as u8));
+                    } else {
+                        output.push_str(&format!("{}• border_color: set\n", prop_indent));
+                    }
+                }
             }
             if element.border_radius > 0.0 {
                 output.push_str(&format!("{}• border_radius: {}\n", prop_indent, element.border_radius));
             }
+            
+            // Other visual properties
             if element.opacity != 1.0 {
                 output.push_str(&format!("{}• opacity: {}\n", prop_indent, element.opacity));
+            }
+            if !element.visible {
+                output.push_str(&format!("{}• visible: false\n", prop_indent));
             }
             if element.disabled {
                 output.push_str(&format!("{}• disabled: true\n", prop_indent));
             }
+            if element.cursor != kryon_core::CursorType::Default {
+                output.push_str(&format!("{}• cursor: {:?}\n", prop_indent, element.cursor));
+            }
             
-            // Show custom properties
+            // Layout properties
+            if element.layout_flags != 0 {
+                output.push_str(&format!("{}• layout_flags: 0x{:02X}\n", prop_indent, element.layout_flags));
+            }
+            if element.style_id != 0 {
+                output.push_str(&format!("{}• style_id: {}\n", prop_indent, element.style_id));
+            }
+            
+            // Component properties
+            if let Some(ref component_name) = element.component_name {
+                output.push_str(&format!("{}• component_name: \"{}\"\n", prop_indent, component_name));
+            }
+            if element.is_component_instance {
+                output.push_str(&format!("{}• is_component_instance: true\n", prop_indent));
+            }
+            
+            // State
+            if element.current_state != kryon_core::InteractionState::Normal {
+                output.push_str(&format!("{}• current_state: {:?}\n", prop_indent, element.current_state));
+            }
+            
+            // Custom properties
             for (prop_name, prop_value) in &element.custom_properties {
                 output.push_str(&format!("{}• {}: {:?}\n", prop_indent, prop_name, prop_value));
+            }
+            
+            // Event handlers
+            if !element.event_handlers.is_empty() {
+                for (event_type, handler) in &element.event_handlers {
+                    output.push_str(&format!("{}• on_{:?}: \"{}\"\n", prop_indent, event_type, handler));
+                }
             }
         }
         

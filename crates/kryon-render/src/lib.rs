@@ -61,6 +61,7 @@ pub enum RenderCommand {
         color: Vec4,
         alignment: TextAlignment,
         max_width: Option<f32>,
+        max_height: Option<f32>,
     },
     DrawImage {
         position: Vec2,
@@ -171,8 +172,8 @@ impl<R: CommandRenderer> ElementRenderer<R> {
     ) -> RenderResult<Vec<RenderCommand>> {
         let mut commands = Vec::new();
 
-        // Get the final computed style for the element.
-        let style = self.style_computer.compute(element_id);
+        // Get the final computed style for the element using its current interaction state.
+        let style = self.style_computer.compute_with_state(element_id, element.current_state);
 
         // Get the position and size FROM THE LAYOUT ENGINE. This is the single source of truth.
         let Some(position) = layout.computed_positions.get(&element_id).copied() else {
@@ -216,6 +217,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                     color: text_color,
                     alignment: element.text_alignment,
                     max_width: Some(size.x), // The max width is the element's full width.
+                    max_height: Some(size.y), // The max height is the element's full height.
                 });
             }
         }

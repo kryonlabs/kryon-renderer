@@ -529,6 +529,7 @@ impl WgpuRenderer {
                 color,
                 alignment,
                 max_width,
+                max_height: _,
             } = command {
                 self.text_renderer.render_text(
                     &mut context.encoder,

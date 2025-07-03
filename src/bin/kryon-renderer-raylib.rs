@@ -33,6 +33,14 @@ struct Args {
     /// Enable debug logging
     #[arg(short, long)]
     debug: bool,
+
+    /// Take a screenshot and exit
+    #[arg(long)]
+    screenshot: Option<String>,
+
+    /// Duration to wait before taking screenshot (in milliseconds)
+    #[arg(long, default_value = "100")]
+    screenshot_delay: u64,
 }
 
 fn main() -> Result<()> {
@@ -100,6 +108,8 @@ fn main() -> Result<()> {
     info!("Starting Raylib render loop...");
     
     let mut last_frame_time = Instant::now();
+    let start_time = Instant::now();
+    let mut screenshot_taken = false;
     
     loop {
         // Check if window should close
@@ -114,7 +124,11 @@ fn main() -> Result<()> {
         
         // Poll and handle input events
         let input_events = app.renderer_mut().backend_mut().poll_input_events();
+        if !input_events.is_empty() {
+            eprintln!("[MAIN_DEBUG] *** GOT {} INPUT EVENTS ***", input_events.len());
+        }
         for event in input_events {
+            eprintln!("[MAIN_DEBUG] Processing input event: {:?}", event);
             if let Err(e) = app.handle_input(event) {
                 error!("Failed to handle input event: {}", e);
             }
@@ -130,6 +144,20 @@ fn main() -> Result<()> {
         if let Err(e) = app.render() {
             error!("Failed to render frame: {}", e);
             break;
+        }
+        
+        // Handle screenshot mode
+        if let Some(ref screenshot_file) = args.screenshot {
+            if !screenshot_taken && now.duration_since(start_time) >= Duration::from_millis(args.screenshot_delay) {
+                info!("Taking screenshot: {}", screenshot_file);
+                if let Err(e) = app.renderer_mut().backend_mut().take_screenshot(screenshot_file) {
+                    error!("Failed to take screenshot: {}", e);
+                } else {
+                    info!("Screenshot saved successfully");
+                }
+                screenshot_taken = true;
+                break; // Exit after taking screenshot
+            }
         }
     }
     

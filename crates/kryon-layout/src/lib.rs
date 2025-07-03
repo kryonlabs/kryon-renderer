@@ -62,8 +62,8 @@ impl LayoutEngine for FlexboxLayoutEngine {
         
         if let Some(root_element) = elements.get(&root_id) {
             // Calculate scaling factor based on designed size vs actual viewport
-            // Assume designed size is 800x600 (from .kry file), scale to fit viewport
-            let design_size = Vec2::new(800.0, 600.0);
+            // Use the root element's size as the design size (from .kry file)
+            let design_size = root_element.size;
             let scale_x = viewport_size.x / design_size.x;
             let scale_y = viewport_size.y / design_size.y;
             let scale_factor = scale_x.min(scale_y); // Use uniform scaling to maintain aspect ratio
