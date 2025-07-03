@@ -157,29 +157,21 @@ pkgs.mkShell {
   WGPU_POWER_PREF = "low";  # Prefer integrated GPU
 
   shellHook = ''
-    echo ""
-    echo "✅ Graphics Environment Setup Complete"
-    echo ""
-    echo "⚠️  IMPORTANT: Your main 'kryon-renderer' program is failing because it doesn't"
-    echo "   tell Cargo which '--features' to use when running backends. The commands"
-    echo "   below provide a direct workaround. To fix the issue permanently, you must"
-    echo "   update the Rust code in 'src/bin/kryon-renderer.rs'."
-    echo ""
-    
     unset RUST_LOG
     
-    echo "🚀 DIRECT WORKAROUND COMMANDS (Use these now):"
+    echo "🚀 DIRECT COMMANDS:"
     echo ""
-    echo "  # Run the Raylib backend directly:"
+    echo "  # Debug (text) backend:"
+    echo '    cargo run --bin kryon-renderer-debug -- examples/fundamentals/hello_world.krb'
+    echo ""
+    echo "  # Raylib backend:"
     echo '    cargo run --features raylib --bin kryon-renderer-raylib -- examples/fundamentals/hello_world.krb'
     echo ""
-    echo "  # Run the WGPU backend directly:"
+    echo "  # WGPU backend:"
     echo '    cargo run --features wgpu --bin kryon-renderer-wgpu -- examples/fundamentals/hello_world.krb'
     echo ""
-    echo "  # Run the Ratatui backend directly:"
+    echo "  # Ratatui backend:"
     echo '    cargo run --features ratatui --bin kryon-renderer-ratatui -- examples/fundamentals/hello_world.krb'
     echo ""
-    echo ""
-
   '';
 }
