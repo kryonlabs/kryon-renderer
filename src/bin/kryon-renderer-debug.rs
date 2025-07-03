@@ -50,7 +50,7 @@ fn main() -> Result<()> {
         "tree" => generate_tree_output(&krb_file, &args),
         "json" => generate_json_output(&krb_file),
         "detailed" => generate_detailed_output(&krb_file, &args),
-        _ => anyhow::bail!("Unknown format: {}. Use 'tree', 'json', or 'detailed'"),
+        _ => anyhow::bail!("Unknown format: {}. Use 'tree', 'json', or 'detailed'", args.format),
     }?;
 
     // Output to file or stdout
@@ -65,7 +65,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn generate_tree_output(krb_file: &kryon_core::KrbFile, args: &Args) -> Result<String> {
+fn generate_tree_output(krb_file: &kryon_core::KRBFile, args: &Args) -> Result<String> {
     let mut output = String::new();
     
     if let Some(root_id) = krb_file.root_element_id {
@@ -79,7 +79,7 @@ fn generate_tree_output(krb_file: &kryon_core::KrbFile, args: &Args) -> Result<S
 
 fn render_element_tree(
     output: &mut String, 
-    krb_file: &kryon_core::KrbFile, 
+    krb_file: &kryon_core::KRBFile, 
     element_id: u32, 
     depth: usize, 
     args: &Args,
@@ -117,23 +117,30 @@ fn render_element_tree(
         
         // Show key properties inline
         let mut inline_props = Vec::new();
-        if let Some(bg_color) = element.properties.get("background_color") {
-            if let Some(color_str) = bg_color.as_str() {
-                if args.show_colors {
-                    inline_props.push(format!("bg:{}", color_str));
-                } else {
-                    inline_props.push("bg:color".to_string());
-                }
+        
+        // Show background color if not transparent
+        if element.background_color.w > 0.0 {
+            if args.show_colors {
+                inline_props.push(format!("bg:#{:02X}{:02X}{:02X}{:02X}", 
+                    (element.background_color.x * 255.0) as u8,
+                    (element.background_color.y * 255.0) as u8,
+                    (element.background_color.z * 255.0) as u8,
+                    (element.background_color.w * 255.0) as u8));
+            } else {
+                inline_props.push("bg:set".to_string());
             }
         }
         
-        if let Some(text_color) = element.properties.get("text_color") {
-            if let Some(color_str) = text_color.as_str() {
-                if args.show_colors {
-                    inline_props.push(format!("color:{}", color_str));
-                } else {
-                    inline_props.push("color:set".to_string());
-                }
+        // Show text color if not default
+        if element.text_color != glam::Vec4::new(0.0, 0.0, 0.0, 1.0) {
+            if args.show_colors {
+                inline_props.push(format!("color:#{:02X}{:02X}{:02X}{:02X}", 
+                    (element.text_color.x * 255.0) as u8,
+                    (element.text_color.y * 255.0) as u8,
+                    (element.text_color.z * 255.0) as u8,
+                    (element.text_color.w * 255.0) as u8));
+            } else {
+                inline_props.push("color:set".to_string());
             }
         }
         
@@ -151,26 +158,29 @@ fn render_element_tree(
                 &format!("{}    ", "│   ".repeat(depth))
             };
             
-            for (prop_name, prop_value) in &element.properties {
-                if prop_name == "background_color" || prop_name == "text_color" {
-                    continue; // Already shown inline
-                }
-                
-                output.push_str(&format!("{}• {}: ", prop_indent, prop_name));
-                
-                if args.show_colors && (prop_name.contains("color") || prop_name.contains("Color")) {
-                    if let Some(color_val) = prop_value.as_str() {
-                        output.push_str(&format!("{}", color_val));
-                        if let Ok(parsed_color) = parse_color_value(color_val) {
-                            output.push_str(&format!(" (#{:02X}{:02X}{:02X}{:02X})", 
-                                                    parsed_color.r, parsed_color.g, 
-                                                    parsed_color.b, parsed_color.a));
-                        }
-                    }
-                } else {
-                    output.push_str(&format!("{}", prop_value));
-                }
-                output.push('\n');
+            // Show various element properties
+            if !element.text.is_empty() {
+                output.push_str(&format!("{}• text: \"{}\"\n", prop_indent, element.text));
+            }
+            if element.font_size != 16.0 {
+                output.push_str(&format!("{}• font_size: {}\n", prop_indent, element.font_size));
+            }
+            if element.border_width > 0.0 {
+                output.push_str(&format!("{}• border_width: {}\n", prop_indent, element.border_width));
+            }
+            if element.border_radius > 0.0 {
+                output.push_str(&format!("{}• border_radius: {}\n", prop_indent, element.border_radius));
+            }
+            if element.opacity != 1.0 {
+                output.push_str(&format!("{}• opacity: {}\n", prop_indent, element.opacity));
+            }
+            if element.disabled {
+                output.push_str(&format!("{}• disabled: true\n", prop_indent));
+            }
+            
+            // Show custom properties
+            for (prop_name, prop_value) in &element.custom_properties {
+                output.push_str(&format!("{}• {}: {:?}\n", prop_indent, prop_name, prop_value));
             }
         }
         
@@ -185,13 +195,11 @@ fn render_element_tree(
     Ok(())
 }
 
-fn generate_json_output(krb_file: &kryon_core::KrbFile) -> Result<String> {
+fn generate_json_output(krb_file: &kryon_core::KRBFile) -> Result<String> {
     // Simple JSON representation
     let mut output = String::new();
     output.push_str("{\n");
-    output.push_str(&format!("  \"version\": \"{}.{}\",\n", 
-                            krb_file.header.version_major, 
-                            krb_file.header.version_minor));
+    output.push_str(&format!("  \"version\": \"{}\",\n", krb_file.header.version));
     output.push_str(&format!("  \"element_count\": {},\n", krb_file.elements.len()));
     output.push_str(&format!("  \"string_count\": {},\n", krb_file.strings.len()));
     output.push_str("  \"elements\": [\n");
@@ -218,16 +226,14 @@ fn generate_json_output(krb_file: &kryon_core::KrbFile) -> Result<String> {
     Ok(output)
 }
 
-fn generate_detailed_output(krb_file: &kryon_core::KrbFile, args: &Args) -> Result<String> {
+fn generate_detailed_output(krb_file: &kryon_core::KRBFile, args: &Args) -> Result<String> {
     let mut output = String::new();
     
     output.push_str("=== KRYON BINARY FILE ANALYSIS ===\n\n");
     
     // Header information
     output.push_str("HEADER:\n");
-    output.push_str(&format!("  Version: {}.{}\n", 
-                            krb_file.header.version_major, 
-                            krb_file.header.version_minor));
+    output.push_str(&format!("  Version: {}\n", krb_file.header.version));
     output.push_str(&format!("  Flags: 0x{:04X}\n", krb_file.header.flags));
     output.push_str("\n");
     
@@ -241,7 +247,7 @@ fn generate_detailed_output(krb_file: &kryon_core::KrbFile, args: &Args) -> Resu
     // Element tree
     output.push_str("ELEMENT TREE:\n");
     if let Some(root_id) = krb_file.root_element_id {
-        render_element_tree(&mut output, krb_file, root_id, 0, args)?;
+        render_element_tree(&mut output, krb_file, root_id, 0, args, true)?;
     }
     
     output.push_str("\n=== END ANALYSIS ===\n");

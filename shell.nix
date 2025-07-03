@@ -142,9 +142,6 @@ pkgs.mkShell {
   # CRITICAL: Vulkan ICD files for Intel (FIXED PATH)
   VK_ICD_FILENAMES = "${pkgs.mesa.drivers}/share/vulkan/icd.d/intel_icd.x86_64.json";
   
-  # Alternative: Let Vulkan find all drivers automatically
-  # VK_DRIVER_FILES = "${pkgs.mesa.drivers}/share/vulkan/icd.d/intel_icd.x86_64.json";
-  
   # Mesa driver paths
   LIBGL_DRIVERS_PATH = "${pkgs.mesa.drivers}/lib/dri";
   LIBVA_DRIVERS_PATH = "${pkgs.intel-media-driver}/lib/dri";
@@ -160,19 +157,29 @@ pkgs.mkShell {
   WGPU_POWER_PREF = "low";  # Prefer integrated GPU
 
   shellHook = ''
-    # Check environment
     echo ""
-    echo "🔍 Graphics Environment:"
+    echo "✅ Graphics Environment Setup Complete"
+    echo ""
+    echo "⚠️  IMPORTANT: Your main 'kryon-renderer' program is failing because it doesn't"
+    echo "   tell Cargo which '--features' to use when running backends. The commands"
+    echo "   below provide a direct workaround. To fix the issue permanently, you must"
+    echo "   update the Rust code in 'src/bin/kryon-renderer.rs'."
+    echo ""
     
     unset RUST_LOG
     
+    echo "🚀 DIRECT WORKAROUND COMMANDS (Use these now):"
     echo ""
-    echo "🚀 Test commands:"
-    echo "  # Debug WGPU adapter detection:"
-    echo "  RUST_LOG=wgpu=debug cargo run --bin kryon-renderer-wgpu --features wgpu examples/hello_world.krb"
+    echo "  # Run the Raylib backend directly:"
+    echo '    cargo run --features raylib --bin kryon-renderer-raylib -- examples/fundamentals/hello_world.krb'
     echo ""
-    echo "  # Other backends:"
-    echo "  cargo run --bin kryon-renderer-raylib --features raylib examples/hello_world.krb"
-    echo "  cargo run --bin kryon-renderer-ratatui --features ratatui examples/hello_world.krb"
+    echo "  # Run the WGPU backend directly:"
+    echo '    cargo run --features wgpu --bin kryon-renderer-wgpu -- examples/fundamentals/hello_world.krb'
+    echo ""
+    echo "  # Run the Ratatui backend directly:"
+    echo '    cargo run --features ratatui --bin kryon-renderer-ratatui -- examples/fundamentals/hello_world.krb'
+    echo ""
+    echo ""
+
   '';
 }
