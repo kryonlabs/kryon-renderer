@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Kryon Labs"]
 description = "Standalone renderer for Kryon Binary (.krb) files"
-license = "MIT OR Apache-2.0"
+license = "0BSD"
 
 [[bin]]
 name = "kryon-renderer"
