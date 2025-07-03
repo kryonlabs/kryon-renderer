@@ -1,12 +1,9 @@
-// crates/kryon-render/src/lib.rs
-
-use kryon_core::{
-    Element, ElementId, ElementType, TextAlignment,
-    StyleComputer
-};
-use kryon_layout::LayoutResult;
 use glam::{Vec2, Vec4};
 use std::collections::HashMap;
+// use tracing::info; // No longer needed
+
+use kryon_core::{Element, ElementId, StyleComputer, TextAlignment};
+use kryon_layout::LayoutResult;
 
 pub mod events;
 pub use events::*;
@@ -25,21 +22,16 @@ pub enum RenderError {
 
 pub type RenderResult<T> = std::result::Result<T, RenderError>;
 
-/// Core rendering trait that all backends must implement
+/// Core rendering trait that all backends must implement.
 pub trait Renderer {
     type Surface;
     type Context;
 
-    /// Initialize the renderer with the given surface
-    fn initialize(surface: Self::Surface) -> RenderResult<Self> where Self: Sized;
-
-    /// Begin a new frame
+    fn initialize(surface: Self::Surface) -> RenderResult<Self>
+    where
+        Self: Sized;
     fn begin_frame(&mut self, clear_color: Vec4) -> RenderResult<Self::Context>;
-
-    /// End the current frame and present it
     fn end_frame(&mut self, context: Self::Context) -> RenderResult<()>;
-
-    /// Render a single element
     fn render_element(
         &mut self,
         context: &mut Self::Context,
@@ -47,17 +39,12 @@ pub trait Renderer {
         layout: &LayoutResult,
         element_id: ElementId,
     ) -> RenderResult<()>;
-
-    /// Handle window resize
     fn resize(&mut self, new_size: Vec2) -> RenderResult<()>;
-
-    /// Get current viewport size
     fn viewport_size(&self) -> Vec2;
 }
 
-
-/// High-level rendering commands
-/// #[derive(Debug, Clone)]
+/// High-level rendering commands for backends that use them.
+#[derive(Debug, Clone)]
 pub enum RenderCommand {
     DrawRect {
         position: Vec2,
@@ -86,12 +73,12 @@ pub enum RenderCommand {
         size: Vec2,
     },
     ClearClip,
+    /// Informs the renderer of the application's intended canvas size.
     SetCanvasSize(Vec2),
 }
 
-/// Trait for backends that use command-based rendering
+/// Trait for backends that use command-based rendering.
 pub trait CommandRenderer: Renderer {
-    /// Execute a batch of render commands
     fn execute_commands(
         &mut self,
         context: &mut Self::Context,
@@ -99,14 +86,13 @@ pub trait CommandRenderer: Renderer {
     ) -> RenderResult<()>;
 }
 
-
+/// The bridge between the scene graph and the rendering backend.
+/// It translates elements and layout into a stream of `RenderCommand`s.
 pub struct ElementRenderer<R: CommandRenderer> {
     backend: R,
-    style_computer: StyleComputer, 
+    style_computer: StyleComputer,
     viewport_size: Vec2,
 }
-
-
 
 impl<R: CommandRenderer> ElementRenderer<R> {
     pub fn new(backend: R, style_computer: StyleComputer) -> Self {
@@ -118,6 +104,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
         }
     }
 
+    /// Renders a complete frame by generating and executing a single batch of commands.
     pub fn render_frame(
         &mut self,
         elements: &HashMap<ElementId, Element>,
@@ -126,40 +113,56 @@ impl<R: CommandRenderer> ElementRenderer<R> {
         clear_color: Vec4,
     ) -> RenderResult<()> {
         let mut context = self.backend.begin_frame(clear_color)?;
+
         if let Some(root_element) = elements.get(&root_id) {
-            self.render_element_tree(&mut context, elements, layout, root_id, root_element)?;
+            let mut all_commands = Vec::new();
+
+            // Use the root element's size as defined in the KRB file for the canvas.
+            let canvas_size = root_element.size;
+            if canvas_size.x > 0.0 && canvas_size.y > 0.0 {
+                all_commands.push(RenderCommand::SetCanvasSize(canvas_size));
+                eprintln!("[ElementRenderer] Queued SetCanvasSize command: {:?}", canvas_size);
+            }
+
+            // Recursively fill the command list from the element tree.
+            self.collect_render_commands(&mut all_commands, elements, layout, root_id, root_element)?;
+
+            eprintln!("[ElementRenderer] Executing a batch of {} commands for the frame.", all_commands.len());
+            self.backend.execute_commands(&mut context, &all_commands)?;
         }
+
         self.backend.end_frame(context)?;
         Ok(())
     }
 
-    fn render_element_tree(
-        &mut self,
-        context: &mut R::Context,
+    /// Recursively traverses the element tree and appends drawing commands to a list.
+    fn collect_render_commands(
+        &self,
+        all_commands: &mut Vec<RenderCommand>,
         elements: &HashMap<ElementId, Element>,
         layout: &LayoutResult,
         element_id: ElementId,
         element: &Element,
     ) -> RenderResult<()> {
         if !element.visible {
-            // If the element is not visible, it would stop here.
             return Ok(());
         }
 
-        let commands = self.element_to_commands(element, layout, element_id)?;
+        // Generate commands for the current element and append them.
+        let mut element_commands = self.element_to_commands(element, layout, element_id)?;
+        all_commands.append(&mut element_commands);
 
-        eprintln!("[ElementRenderer] For element ID {}, generated {} commands.", element_id, commands.len());
-
-        self.backend.execute_commands(context, &commands)?;
-
+        // Recurse for children.
         for &child_id in &element.children {
             if let Some(child_element) = elements.get(&child_id) {
-                self.render_element_tree(context, elements, layout, child_id, child_element)?;
+                self.collect_render_commands(all_commands, elements, layout, child_id, child_element)?;
             }
         }
         Ok(())
     }
 
+    /// Translates a single element into one or more `RenderCommand`s.
+    /// This function is the heart of the renderer logic.
     fn element_to_commands(
         &self,
         element: &Element,
@@ -168,165 +171,67 @@ impl<R: CommandRenderer> ElementRenderer<R> {
     ) -> RenderResult<Vec<RenderCommand>> {
         let mut commands = Vec::new();
 
-        // Compute the final style based on inheritance
+        // Get the final computed style for the element.
         let style = self.style_computer.compute(element_id);
-        
-        // Calculate position based on parent-child relationships
-        let (position, size) = self.calculate_element_layout(element, layout, element_id);
-        
-        eprintln!("[POSITION] Element {}: KRB pos={:?}, Layout pos={:?}, Final pos={:?}", 
-            element_id, element.position, layout.computed_positions.get(&element_id), position);
 
-        // Now, use the perfectly computed style values!
+        // Get the position and size FROM THE LAYOUT ENGINE. This is the single source of truth.
+        let Some(position) = layout.computed_positions.get(&element_id).copied() else {
+            return Ok(commands); // Element not positioned by layout, so it can't be drawn.
+        };
+        let Some(size) = layout.computed_sizes.get(&element_id).copied() else {
+            return Ok(commands); // Element has no size, so it can't be drawn.
+        };
+        
+        // Draw the background/border rectangle.
         let mut bg_color = style.background_color;
         bg_color.w *= element.opacity;
 
-        let mut border_width = style.border_width;
+        let border_width = style.border_width;
         let mut border_color = style.border_color;
         border_color.w *= element.opacity;
-        
-        eprintln!("[element_to_commands] Element {}: bg={:?}, border={:?}, border_width={}, type={:?}",
-            element.id, bg_color, border_color, border_width, element.element_type);
-
-        if border_width == 0.0 && border_color.w > 0.0 {
-            border_width = 1.0;
-        }
 
         if bg_color.w > 0.0 || border_width > 0.0 {
             commands.push(RenderCommand::DrawRect {
-                position, size, color: bg_color,
+                position,
+                size,
+                color: bg_color,
                 border_radius: style.border_radius,
                 border_width,
                 border_color,
             });
         }
 
+        // Draw the text, if any.
         if !element.text.is_empty() {
             let mut text_color = style.text_color;
             text_color.w *= element.opacity;
 
             if text_color.w > 0.0 {
-                // For text positioning, we need to handle alignment properly
-                // For centered text, the calculate_element_layout already centers the text element
-                // within its parent, so we just need to position the text at the center of the element
-                let text_position = match element.text_alignment {
-                    TextAlignment::Center => {
-                        // The position already represents the centered bounds of the text element
-                        // For raylib, center alignment means the text is drawn centered at this position
-                        position
-                    }
-                    TextAlignment::Start => position + Vec2::new(5.0, 5.0),
-                    TextAlignment::End => Vec2::new(
-                        position.x + size.x - 5.0,
-                        position.y + 5.0
-                    ),
-                    TextAlignment::Justify => position + Vec2::new(5.0, 5.0),
-                };
-                
+                // The position for the text block is the same as the element's bounding box.
+                // The renderer backend (e.g., Ratatui) will handle alignment within that box.
                 commands.push(RenderCommand::DrawText {
-                    position: text_position,
+                    position, // Use the element's top-left corner.
                     text: element.text.clone(),
-                    font_size: element.font_size.max(16.0),
+                    font_size: element.font_size,
                     color: text_color,
                     alignment: element.text_alignment,
-                    max_width: Some(size.x.max(10.0) - 10.0),
+                    max_width: Some(size.x), // The max width is the element's full width.
                 });
             }
         }
 
         Ok(commands)
     }
-    
-    fn calculate_element_layout(
-        &self,
-        element: &Element,
-        layout: &LayoutResult,
-        element_id: ElementId,
-    ) -> (Vec2, Vec2) {
-        // Check if element has explicit position (absolute positioning)
-        if element.position != Vec2::ZERO {
-            // Element has explicit position - use absolute positioning
-            let size = layout.computed_sizes.get(&element_id).copied().unwrap_or(element.size);
-            return (element.position, size);
-        }
-        
-        // Element has no explicit position - check if layout engine positioned it
-        let layout_position = layout.computed_positions.get(&element_id).copied();
-        let layout_size = layout.computed_sizes.get(&element_id).copied();
-        
-        eprintln!("[LAYOUT] Element {}: layout_pos={:?}, layout_size={:?}, parent={:?}", 
-            element_id, layout_position, layout_size, element.parent);
-        
-        // If layout engine has positioned this element, use its position
-        if let Some(layout_pos) = layout_position {
-            let size = layout_size.unwrap_or(element.size);
-            eprintln!("[LAYOUT] Using layout engine position for element {}: {:?}", element_id, layout_pos);
-            return (layout_pos, size);
-        }
-        
-        // Fallback to parent-relative positioning
-        if let Some(parent_id) = element.parent {
-            // Get parent element from style computer
-            if let Some(parent_element) = self.style_computer.get_element(parent_id) {
-                eprintln!("[LAYOUT] Parent {} has layout_flags: {:08b}", parent_id, parent_element.layout_flags);
-                // Calculate parent's final position recursively
-                let (parent_pos, parent_size) = self.calculate_element_layout(parent_element, layout, parent_id);
-                
-                // Position child relative to parent based on parent's layout settings
-                let child_size = layout.computed_sizes.get(&element_id).copied().unwrap_or(element.size);
-                
-                // If child size is invalid (inf) or zero, use reasonable defaults
-                let final_child_size = Vec2::new(
-                    if child_size.x.is_finite() && child_size.x > 0.0 { 
-                        child_size.x 
-                    } else { 
-                        // For text elements, calculate reasonable width based on text length
-                        if element.element_type == ElementType::Text && !element.text.is_empty() {
-                            // Estimate text width: ~8 pixels per character + some padding
-                            (element.text.len() as f32 * 8.0).min(parent_size.x * 0.8)
-                        } else {
-                            parent_size.x * 0.8
-                        }
-                    },
-                    if child_size.y.is_finite() && child_size.y > 0.0 { 
-                        child_size.y 
-                    } else { 
-                        // For text, use font size + padding
-                        if element.element_type == ElementType::Text {
-                            element.font_size.max(16.0) + 8.0
-                        } else {
-                            20.0
-                        }
-                    }
-                );
-                
-                // Center the child within the parent
-                let child_pos = Vec2::new(
-                    parent_pos.x + (parent_size.x - final_child_size.x) / 2.0,
-                    parent_pos.y + (parent_size.y - final_child_size.y) / 2.0,
-                );
-                
-                return (child_pos, final_child_size);
-            }
-        }
-        
-        // Fallback: use layout computed position or element position
-        let position = layout.computed_positions.get(&element_id).copied().unwrap_or(element.position);
-        let size = layout.computed_sizes.get(&element_id).copied().unwrap_or(element.size);
-        (position, size)
-    }
 
     pub fn resize(&mut self, new_size: Vec2) -> RenderResult<()> {
         self.viewport_size = new_size;
         self.backend.resize(new_size)
     }
-    
-    // --- THIS IS THE NEW FUNCTION THAT FIXES THE ERROR ---
+
     pub fn viewport_size(&self) -> Vec2 {
         self.viewport_size
     }
-    
-    // It's also good practice to provide access to the underlying backend
+
     pub fn backend(&self) -> &R {
         &self.backend
     }
@@ -335,4 +240,3 @@ impl<R: CommandRenderer> ElementRenderer<R> {
         &mut self.backend
     }
 }
-

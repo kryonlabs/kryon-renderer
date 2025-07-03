@@ -251,7 +251,8 @@ impl RaylibRenderer {
             RenderCommand::ClearClip => {
                 // Raylib handles scissor mode differently - it's scoped to the draw handle
                 // This is a no-op since scissor mode will end when the draw context ends
-            }
+            },
+            RenderCommand::SetCanvasSize(_) => {}
         }
         Ok(())
     }

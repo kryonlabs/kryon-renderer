@@ -1,5 +1,3 @@
-// /home/wao/lyra/proj/kryonlabs/kryon-renderer/src/bin/kryon-renderer-ratatui.rs
-
 use std::io;
 use std::panic;
 use std::path::Path;
@@ -7,7 +5,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use tracing::{error, info};
 
 // Terminal specific imports
 use crossterm::{
@@ -18,8 +15,8 @@ use crossterm::{
 use ratatui::prelude::CrosstermBackend;
 
 // Kryon imports
-use kryon_core::load_krb_file;
-use kryon_render::{InputEvent, Renderer};
+use kryon_core::load_krb_file; // Assuming you might want this for inspect
+use kryon_render::{CommandRenderer, InputEvent, Renderer}; // Keep Renderer for trait bounds
 use kryon_ratatui::RatatuiRenderer;
 use kryon_runtime::KryonApp;
 
@@ -29,76 +26,57 @@ use kryon_runtime::KryonApp;
 struct Args {
     /// Path to the .krb file to render
     krb_file: String,
-
-    /// Enable debug logging
-    #[arg(short, long)]
-    debug: bool,
-
     /// Inspect KRB file contents without rendering
     #[arg(long)]
     inspect: bool,
 }
 
 fn main() -> Result<()> {
-    // 1. Parse args *before* using them.
     let args = Args::parse();
-    
-    // 2. Setup Logging and the critical Panic Hook
-    init_logging(args.debug)?;
+
     let original_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
-        // Attempt to clean up the terminal before the program exits from a panic.
         let _ = cleanup_terminal();
         original_hook(panic_info);
     }));
 
-    // 3. Validate file path
     if !Path::new(&args.krb_file).exists() {
         anyhow::bail!("KRB file not found: {}", args.krb_file);
     }
 
-    // 4. Run in Inspection Mode or Render Mode
     if args.inspect {
-        // If --inspect is passed, just print the data and exit cleanly.
         return inspect_krb_file(&args.krb_file);
     }
-    
-    // 5. Run the main application logic, which handles its own errors.
+
     let result = run(&args);
 
-    // 6. Guaranteed Cleanup: This runs AFTER run() completes, whether it was successful or not.
     cleanup_terminal()?;
 
-    // 7. Now, we can safely return the result from the application.
-    result
+    if let Err(e) = result {
+        eprintln!("Application exited with an error: {:?}", e);
+    }
+
+    Ok(())
 }
 
-/// The main application function, which contains the setup and render loop.
 fn run(args: &Args) -> Result<()> {
-    // --- Terminal and Renderer Initialization ---
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    
-    // Create the backend that Ratatui will draw to.
+
     let backend = CrosstermBackend::new(stdout);
-    // The renderer now takes ownership of the backend to manage it.
     let renderer = RatatuiRenderer::initialize(backend)?;
 
-    // Create the main Kryon application with the correctly initialized renderer
     let mut app =
         KryonApp::new(&args.krb_file, renderer).context("Failed to create Kryon application")?;
 
-    info!("Starting terminal render loop... (Press 'q' to quit)");
+    println!("Starting terminal render loop... (Press 'q' to quit)"); // This is ok, it's user-facing
 
-    // --- Main Application Loop ---
     let mut last_frame_time = Instant::now();
     loop {
-        // Handle terminal input events
         if event::poll(Duration::from_millis(16))? {
             match event::read()? {
                 CrosstermEvent::Key(key) if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc => {
-                    info!("Exit requested.");
                     break;
                 }
                 CrosstermEvent::Resize(width, height) => {
@@ -106,24 +84,22 @@ fn run(args: &Args) -> Result<()> {
                         size: glam::vec2(width as f32, height as f32),
                     };
                     if let Err(e) = app.handle_input(event) {
-                        error!("Failed to handle resize: {}", e);
+                        eprintln!("Failed to handle resize: {:?}", e);
                     }
                 }
-                _ => {} // Ignore other events for now
+                _ => {}
             }
         }
 
-        // Update application state
         let delta_time = last_frame_time.elapsed();
         last_frame_time = Instant::now();
         if let Err(e) = app.update(delta_time) {
-            error!("Failed to update app: {}", e);
+            eprintln!("Failed to update app: {:?}", e);
             break;
         }
 
-        // Render the UI. The renderer implementation handles drawing to the terminal.
         if let Err(e) = app.render() {
-            error!("Failed to render frame: {}", e);
+            eprintln!("Failed to render frame: {:?}", e);
             break;
         }
     }
@@ -131,78 +107,15 @@ fn run(args: &Args) -> Result<()> {
     Ok(())
 }
 
-
-// --- Helper Functions for Clarity ---
-
-/// Initializes the logging subscriber.
-fn init_logging(debug: bool) -> Result<()> {
-    let level = if debug {
-        tracing::Level::DEBUG
-    } else {
-        tracing::Level::INFO
-    };
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(level)
-        .with_target(false)
-        .compact()
-        .finish();
-    tracing::subscriber::set_global_default(subscriber).context("Failed to set tracing subscriber")
-}
-
-/// Restores the terminal to its original state. This is crucial for TUI apps.
 fn cleanup_terminal() -> Result<()> {
-    info!("Restoring terminal.");
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
     Ok(())
 }
 
-/// The inspection function to diagnose .krb file issues without rendering.
 fn inspect_krb_file(krb_path: &str) -> Result<()> {
-    eprintln!("🔍 Inspecting KRB file: {}", krb_path);
-
-    let krb_file = load_krb_file(krb_path).context("Could not load KRB file for inspection")?;
-
-    eprintln!("📊 File Statistics:");
-    eprintln!("  Root element ID: {:?}", krb_file.root_element_id);
-    eprintln!("  Total elements: {}", krb_file.elements.len());
-
-    eprintln!("\n📋 Elements (Position and Size):");
-    let mut visible_in_terminal = 0;
-    for (id, element) in &krb_file.elements {
-        eprintln!("\n  Element {}: {:?}", id, element.element_type);
-        eprintln!("    Text: {:?}", element.text);
-        eprintln!("    Visible: {}", element.visible);
-        eprintln!("    Position: ({:.1}, {:.1})", element.position.x, element.position.y);
-        eprintln!("    Size: ({:.1}, {:.1})", element.size.x, element.size.y);
-        eprintln!("    Background: {:?}", element.background_color);
-
-        // --- DIAGNOSTIC WARNINGS ---
-        // Check if the element's top-left corner is within a reasonable terminal grid.
-        if element.position.x < 120.0 && element.position.y < 50.0 {
-             visible_in_terminal += 1;
-        } else {
-            eprintln!("    ⚠️  WARNING: Element position is likely outside typical terminal character bounds!");
-        }
-
-        if element.size.x == 0.0 || element.size.y == 0.0 {
-            eprintln!("    ⚠️  WARNING: Element has zero size and will not be visible.");
-        }
-
-        if element.text.is_empty() && element.background_color.w < 0.1 {
-            eprintln!("    ⚠️  WARNING: Element is transparent with no text; likely invisible.");
-        }
-    }
-
-    eprintln!("\n📺 Terminal Compatibility Summary (approx 120x50):");
-    if visible_in_terminal == 0 {
-        eprintln!("  ❌ No elements appear to be positioned within standard terminal bounds.");
-        eprintln!("     This is the most likely reason nothing is rendering.");
-        eprintln!("     SUGGESTION: Your `kryon-ratatui` renderer needs to remap pixel coordinates to character cells.");
-    } else {
-        eprintln!("  ✅ {} element(s) are positioned within potential terminal bounds.", visible_in_terminal);
-        eprintln!("     If nothing appears, check for zero-size or invisible elements.");
-    }
-
+    println!("🔍 Inspecting KRB file: {}", krb_path);
+    let krb_file = load_krb_file(krb_path)?;
+    println!("{:#?}", krb_file);
     Ok(())
 }
