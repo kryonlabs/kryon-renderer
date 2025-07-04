@@ -65,8 +65,12 @@ impl ScriptSystem {
                 if script.language == "lua" {
                     match self.lua.globals().get::<_, mlua::Function>(function_name) {
                         Ok(lua_function) => {
-                            tracing::info!("Executing Lua function: {}", function_name);
-                            
+                            match lua_function.call::<_, ()>(()) {
+                                Ok(()) => {
+                                }
+                                Err(e) => {
+                                }
+                            }
                         }
                         Err(e) => {
                             tracing::error!("Lua function '{}' not found: {}", function_name, e);
