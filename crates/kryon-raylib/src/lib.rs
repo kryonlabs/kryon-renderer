@@ -8,6 +8,7 @@ use glam::{Vec2, Vec4};
 use raylib::prelude::*;
 use raylib::ffi;
 use std::collections::HashMap;
+use kryon_render::RenderError;
 
 pub struct RaylibRenderer {
     handle: RaylibHandle,
@@ -109,6 +110,14 @@ impl CommandRenderer for RaylibRenderer {
         _context: &mut Self::Context,
         commands: &[RenderCommand],
     ) -> RenderResult<()> {
+        // Pre-load any textures we might need before adding to pending commands
+        for command in commands {
+            if let RenderCommand::DrawImage { source, .. } = command {
+                // Try to load the texture (will cache it if successful)
+                let _ = self.load_texture(source); // Ignore errors here, will handle in drawing
+            }
+        }
+        
         // Store commands to be executed in end_frame
         self.pending_commands.extend_from_slice(commands);
         Ok(())
@@ -131,6 +140,69 @@ impl RaylibRenderer {
     
     pub fn get_handle(&self) -> &RaylibHandle {
         &self.handle
+    }
+    
+    /// Load a texture from file and cache it for future use
+    /// Tries multiple locations: current dir, relative to KRB file, etc.
+    pub fn load_texture(&mut self, path: &str) -> RenderResult<()> {
+        if !self.textures.contains_key(path) {
+            let resolved_path = self.resolve_image_path(path);
+            if let Some(actual_path) = resolved_path {
+                match raylib::texture::Image::load_image(&actual_path) {
+                    Ok(image) => {
+                        let texture = self.handle.load_texture_from_image(&self.thread, &image)
+                            .map_err(|e| RenderError::RenderFailed(format!("Failed to create texture: {}", e)))?;
+                        self.textures.insert(path.to_string(), texture);
+                        eprintln!("[RAYLIB] Loaded and cached texture: {} (found at: {})", path, actual_path);
+                    }
+                    Err(e) => {
+                        return Err(RenderError::ResourceNotFound(format!("Failed to load image {}: {}", actual_path, e)));
+                    }
+                }
+            } else {
+                return Err(RenderError::ResourceNotFound(format!("Image file not found: {}", path)));
+            }
+        }
+        Ok(())
+    }
+    
+    /// Resolve image path by checking multiple locations
+    fn resolve_image_path(&self, path: &str) -> Option<String> {
+        // Try the path as-is first (relative to current working directory)
+        if std::path::Path::new(path).exists() {
+            eprintln!("[RAYLIB] Found image at current path: {}", path);
+            return Some(path.to_string());
+        }
+        
+        // Get the KRB file path from command line args if available
+        let args: Vec<String> = std::env::args().collect();
+        if let Some(krb_arg) = args.iter().find(|arg| arg.ends_with(".krb")) {
+            if let Some(krb_dir) = std::path::Path::new(krb_arg).parent() {
+                let krb_relative_path = krb_dir.join(path);
+                if krb_relative_path.exists() {
+                    let resolved = krb_relative_path.to_string_lossy().to_string();
+                    eprintln!("[RAYLIB] Found image relative to KRB: {}", resolved);
+                    return Some(resolved);
+                }
+            }
+        }
+        
+        // Try some common relative paths
+        let common_paths = [
+            format!("assets/{}", path),
+            format!("images/{}", path),
+            format!("resources/{}", path),
+        ];
+        
+        for test_path in &common_paths {
+            if std::path::Path::new(test_path).exists() {
+                eprintln!("[RAYLIB] Found image at common path: {}", test_path);
+                return Some(test_path.clone());
+            }
+        }
+        
+        eprintln!("[RAYLIB] Image not found in any location: {}", path);
+        None
     }
     
     /// Manually poll input events from the OS - this is what EndDrawing() normally does
@@ -233,9 +305,10 @@ impl RaylibRenderer {
     
     fn execute_single_command_impl(
         d: &mut RaylibDrawHandle,
-        _textures: &mut HashMap<String, Texture2D>,
+        textures: &mut HashMap<String, Texture2D>,
         command: &RenderCommand,
     ) -> RenderResult<()> {
+        eprintln!("[RAYLIB] Executing command: {:?}", command);
         match command {
             RenderCommand::DrawRect {
                 position,
@@ -307,14 +380,90 @@ impl RaylibRenderer {
                 );
             }
             RenderCommand::DrawImage {
-                position: _,
-                size: _,
+                position,
+                size,
                 source,
-                opacity: _,
+                opacity,
             } => {
-                // TODO: Image loading requires access to handle and thread
-                // For now, skip image rendering - this would need a different approach
-                tracing::warn!("Image rendering not yet implemented for Raylib backend: {}", source);
+                eprintln!("[RAYLIB] DrawImage match arm reached for: {}", source);
+                
+                // Check if we have a cached texture
+                if let Some(texture) = textures.get(source) {
+                    // Draw the actual texture
+                    let dest_rect = Rectangle::new(position.x, position.y, size.x, size.y);
+                    let source_rect = Rectangle::new(0.0, 0.0, texture.width as f32, texture.height as f32);
+                    let tint = Color::new(255, 255, 255, (*opacity * 255.0) as u8);
+                    
+                    d.draw_texture_pro(
+                        texture,
+                        source_rect,
+                        dest_rect,
+                        Vector2::zero(),
+                        0.0, // rotation
+                        tint,
+                    );
+                    
+                    eprintln!("[RAYLIB] Drew texture: {} at ({:.1},{:.1}) size ({:.1},{:.1})", 
+                        source, position.x, position.y, size.x, size.y);
+                } else {
+                    // No cached texture - draw appropriate placeholder
+                    let resolved_path = self.resolve_image_path(source);
+                    if resolved_path.is_some() {
+                        // File exists but failed to load or wasn't cached
+                        let error_color = Color::new(150, 50, 50, (*opacity * 255.0) as u8);
+                        d.draw_rectangle(
+                            position.x as i32,
+                            position.y as i32,
+                            size.x as i32,
+                            size.y as i32,
+                            error_color,
+                        );
+                        
+                        let text = "LOAD ERROR";
+                        let filename = std::path::Path::new(source).file_name().unwrap_or_default().to_string_lossy();
+                        
+                        let font_size = 12;
+                        let text_width = d.measure_text(text, font_size);
+                        let file_width = d.measure_text(&filename, 10);
+                        
+                        let text_x = position.x + (size.x - text_width as f32) / 2.0;
+                        let text_y = position.y + (size.y - font_size as f32 * 2.0) / 2.0;
+                        let file_x = position.x + (size.x - file_width as f32) / 2.0;
+                        let file_y = text_y + font_size as f32 + 2.0;
+                        
+                        d.draw_text(text, text_x as i32, text_y as i32, font_size, Color::WHITE);
+                        d.draw_text(&filename, file_x as i32, file_y as i32, 10, Color::WHITE);
+                        
+                        eprintln!("[RAYLIB] Image file exists but texture not cached: {}", source);
+                    } else {
+                        // File doesn't exist
+                        let notfound_color = Color::new(150, 150, 50, (*opacity * 255.0) as u8);
+                        d.draw_rectangle(
+                            position.x as i32,
+                            position.y as i32,
+                            size.x as i32,
+                            size.y as i32,
+                            notfound_color,
+                        );
+                        
+                        let text = "NOT FOUND";
+                        let filename = std::path::Path::new(source).file_name().unwrap_or_default().to_string_lossy();
+                        
+                        let font_size = 12;
+                        let text_width = d.measure_text(text, font_size);
+                        let file_width = d.measure_text(&filename, 10);
+                        
+                        let text_x = position.x + (size.x - text_width as f32) / 2.0;
+                        let text_y = position.y + (size.y - font_size as f32 * 2.0) / 2.0;
+                        let file_x = position.x + (size.x - file_width as f32) / 2.0;
+                        let file_y = text_y + font_size as f32 + 2.0;
+                        
+                        d.draw_text(text, text_x as i32, text_y as i32, font_size, Color::WHITE);
+                        d.draw_text(&filename, file_x as i32, file_y as i32, 10, Color::WHITE);
+                        
+                        eprintln!("[RAYLIB] Image file not found: {}", source);
+                    }
+                }
             }
             RenderCommand::SetClip { position, size } => {
                 let _scissor = d.begin_scissor_mode(

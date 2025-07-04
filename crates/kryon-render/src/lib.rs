@@ -2,7 +2,7 @@ use glam::{Vec2, Vec4};
 use std::collections::HashMap;
 // use tracing::info; // No longer needed
 
-use kryon_core::{Element, ElementId, StyleComputer, TextAlignment};
+use kryon_core::{Element, ElementId, ElementType, PropertyValue, StyleComputer, TextAlignment};
 use kryon_layout::LayoutResult;
 
 pub mod events;
@@ -222,6 +222,29 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                     max_width: Some(size.x), // The max width is the element's full width.
                     max_height: Some(size.y), // The max height is the element's full height.
                 });
+            }
+        }
+
+        // Debug: Log element type for all elements
+        eprintln!("[RENDER] Element type: {:?}, custom properties: {:?}", element.element_type, element.custom_properties);
+        
+        // Draw images for Image elements
+        if element.element_type == ElementType::Image {
+            eprintln!("[RENDER] Processing Image element, custom properties: {:?}", element.custom_properties);
+            if let Some(src_property) = element.custom_properties.get("src") {
+                if let PropertyValue::String(image_source) = src_property {
+                    eprintln!("[RENDER] Creating DrawImage command for: {}", image_source);
+                    commands.push(RenderCommand::DrawImage {
+                        position,
+                        size,
+                        source: image_source.clone(),
+                        opacity: element.opacity,
+                    });
+                } else {
+                    eprintln!("[RENDER] src property is not a string: {:?}", src_property);
+                }
+            } else {
+                eprintln!("[RENDER] No src property found in custom_properties");
             }
         }
 

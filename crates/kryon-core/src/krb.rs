@@ -407,6 +407,14 @@ impl KRBParser {
                     _ => TextAlignment::Start,
                 };
             }
+            0x0C => { // ImageSource
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    let image_src = strings[string_index].clone();
+                    element.custom_properties.insert("src".to_string(), PropertyValue::String(image_src.clone()));
+                    eprintln!("[PROP] ImageSource: '{}'", image_src);
+                }
+            }
             0x0F => { // Visibility
                 element.visible = self.read_u8() != 0;
                 eprintln!("[PROP] Visibility: {}", element.visible);
