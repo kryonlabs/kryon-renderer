@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::env;
 
-const HELLO_WORLD_KRB: &str = "examples/fundamentals/hello_world.krb";
+const HELLO_WORLD_KRB: &str = "examples/01_getting_started/hello_world.krb";
 const GOLDEN_SCREENSHOT: &str = "tests/golden_screenshots/hello_world_golden.png";
 const TEST_SCREENSHOT: &str = "tests/temp_screenshots/hello_world_test.png";
 

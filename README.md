@@ -68,16 +68,16 @@ cargo build --features raylib
 
 ```bash
 # WGPU backend (high-performance)
-cargo run --features wgpu --bin kryon-renderer-wgpu -- examples/fundamentals/hello_world.krb
+cargo run --features wgpu --bin kryon-renderer-wgpu -- examples/01_getting_started/hello_world.krb
 
 # Ratatui backend (terminal)
-cargo run --features ratatui --bin kryon-renderer-ratatui -- examples/fundamentals/hello_world.krb
+cargo run --features ratatui --bin kryon-renderer-ratatui -- examples/01_getting_started/hello_world.krb
 
 # Raylib backend (simple graphics)
-cargo run --features raylib --bin kryon-renderer-raylib -- examples/fundamentals/hello_world.krb
+cargo run --features raylib --bin kryon-renderer-raylib -- examples/01_getting_started/hello_world.krb
 
 # With custom window size (raylib example)
-cargo run --features raylib --bin kryon-renderer-raylib -- examples/fundamentals/hello_world.krb --width 1024 --height 768
+cargo run --features raylib --bin kryon-renderer-raylib -- examples/01_getting_started/hello_world.krb --width 1024 --height 768
 ```
 
 ### Screenshot Capture
@@ -86,10 +86,10 @@ The raylib backend supports screenshot capture for testing and debugging:
 
 ```bash
 # Take a screenshot and save it
-cargo run --features raylib --bin kryon-renderer-raylib -- examples/fundamentals/hello_world.krb --screenshot output.png
+cargo run --features raylib --bin kryon-renderer-raylib -- examples/01_getting_started/hello_world.krb --screenshot output.png
 
 # Take screenshot with delay (useful for letting the UI settle)
-cargo run --features raylib --bin kryon-renderer-raylib -- examples/fundamentals/hello_world.krb --screenshot output.png --screenshot-delay 500
+cargo run --features raylib --bin kryon-renderer-raylib -- examples/01_getting_started/hello_world.krb --screenshot output.png --screenshot-delay 500
 ```
 
 ## Debug Renderer
@@ -98,19 +98,19 @@ Use the debug renderer to inspect KRB file structure, element hierarchy, and pro
 
 ```bash
 # Basic tree view
-cargo run --bin kryon-renderer-debug -- examples/fundamentals/hello_world.krb
+cargo run --bin kryon-renderer-debug -- examples/01_getting_started/hello_world.krb
 
 # Show all properties and layout information
-cargo run --bin kryon-renderer-debug -- examples/fundamentals/hello_world.krb --show-properties --show-layout --show-colors
+cargo run --bin kryon-renderer-debug -- examples/01_getting_started/hello_world.krb --show-properties --show-layout --show-colors
 
 # Export to JSON format
-cargo run --bin kryon-renderer-debug -- examples/fundamentals/hello_world.krb --format json
+cargo run --bin kryon-renderer-debug -- examples/01_getting_started/hello_world.krb --format json
 
 # Generate detailed analysis
-cargo run --bin kryon-renderer-debug -- examples/fundamentals/hello_world.krb --format detailed --show-properties
+cargo run --bin kryon-renderer-debug -- examples/01_getting_started/hello_world.krb --format detailed --show-properties
 
 # Save output to file
-cargo run --bin kryon-renderer-debug -- examples/fundamentals/hello_world.krb --output debug_output.txt
+cargo run --bin kryon-renderer-debug -- examples/01_getting_started/hello_world.krb --output debug_output.txt
 ```
 
 ### Debug Output Example

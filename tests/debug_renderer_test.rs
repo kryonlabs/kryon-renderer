@@ -3,7 +3,7 @@ use std::path::Path;
 
 #[test]
 fn test_debug_renderer_basic_output() {
-    let krb_path = "examples/fundamentals/hello_world.krb";
+    let krb_path = "examples/01_getting_started/hello_world.krb";
     
     // Verify the KRB file exists
     assert!(Path::new(krb_path).exists(), "KRB file not found: {}", krb_path);
@@ -32,7 +32,7 @@ fn test_debug_renderer_basic_output() {
 
 #[test]
 fn test_debug_renderer_with_properties() {
-    let krb_path = "examples/fundamentals/hello_world.krb";
+    let krb_path = "examples/01_getting_started/hello_world.krb";
     
     // Run the debug renderer with properties
     let output = Command::new("cargo")
@@ -61,7 +61,7 @@ fn test_debug_renderer_with_properties() {
 
 #[test]
 fn test_debug_renderer_json_output() {
-    let krb_path = "examples/fundamentals/hello_world.krb";
+    let krb_path = "examples/01_getting_started/hello_world.krb";
     
     // Run the debug renderer with JSON format
     let output = Command::new("cargo")
@@ -88,7 +88,7 @@ fn test_debug_renderer_json_output() {
 
 #[test]
 fn test_debug_renderer_detailed_output() {
-    let krb_path = "examples/fundamentals/hello_world.krb";
+    let krb_path = "examples/01_getting_started/hello_world.krb";
     
     // Run the debug renderer with detailed format
     let output = Command::new("cargo")
@@ -133,7 +133,7 @@ fn test_debug_renderer_invalid_file() {
 
 #[test]
 fn test_debug_renderer_properties_validation() {
-    let krb_path = "examples/fundamentals/hello_world.krb";
+    let krb_path = "examples/01_getting_started/hello_world.krb";
     
     // Run the debug renderer with all options
     let output = Command::new("cargo")

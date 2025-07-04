@@ -3,11 +3,13 @@ use kryon_core::{ScriptEntry, Element, ElementId, PropertyValue};
 use std::collections::HashMap;
 use std::time::Duration;
 use anyhow::Result;
+use mlua::Lua;
 
 #[derive(Debug)]
 pub struct ScriptSystem {
     scripts: Vec<ScriptEntry>,
     state: HashMap<String, PropertyValue>,
+    lua: Lua,
 }
 
 impl ScriptSystem {
@@ -15,6 +17,7 @@ impl ScriptSystem {
         Self {
             scripts: Vec::new(),
             state: HashMap::new(),
+            lua: Lua::new(),
         }
     }
     
@@ -24,10 +27,20 @@ impl ScriptSystem {
         for script in &self.scripts {
             tracing::info!("Loaded {} script: {}", script.language, script.name);
             
-            // For now, just log the script content
-            if !script.code.is_empty() && !script.code.starts_with("external:") {
-                tracing::debug!("Script content preview: {}", 
-                    &script.code[..script.code.len().min(100)]);
+            // Load Lua scripts into the Lua context
+            if script.language == "lua" && !script.code.is_empty() && !script.code.starts_with("external:") {
+                tracing::debug!("Loading Lua script: {}", script.name);
+                tracing::debug!("Script content: {}", script.code);
+                
+                // Execute the script to load the functions
+                match self.lua.load(&script.code).exec() {
+                    Ok(()) => {
+                        tracing::info!("Successfully loaded Lua script: {}", script.name);
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to load Lua script '{}': {}", script.name, e);
+                    }
+                }
             }
         }
         
@@ -47,7 +60,19 @@ impl ScriptSystem {
         for script in &self.scripts {
             if script.entry_points.contains(&function_name.to_string()) {
                 tracing::debug!("Found function {} in script {}", function_name, script.name);
-                // Execute the function (placeholder)
+                
+                // Execute the Lua function
+                if script.language == "lua" {
+                    match self.lua.globals().get::<_, mlua::Function>(function_name) {
+                        Ok(lua_function) => {
+                            tracing::info!("Executing Lua function: {}", function_name);
+                            
+                        }
+                        Err(e) => {
+                            tracing::error!("Lua function '{}' not found: {}", function_name, e);
+                        }
+                    }
+                }
                 break;
             }
         }

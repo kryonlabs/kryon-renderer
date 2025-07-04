@@ -162,16 +162,16 @@ pkgs.mkShell {
     echo "🚀 DIRECT COMMANDS:"
     echo ""
     echo "  # Debug (text) backend:"
-    echo '    cargo run --bin kryon-renderer-debug -- examples/fundamentals/hello_world.krb'
+    echo '    cargo run --bin kryon-renderer-debug -- examples/01_getting_started/hello_world.krb'
     echo ""
     echo "  # Raylib backend:"
-    echo '    cargo run --features raylib --bin kryon-renderer-raylib -- examples/fundamentals/hello_world.krb'
+    echo '    cargo run --features raylib --bin kryon-renderer-raylib -- examples/01_getting_started/hello_world.krb'
     echo ""
     echo "  # WGPU backend:"
-    echo '    cargo run --features wgpu --bin kryon-renderer-wgpu -- examples/fundamentals/hello_world.krb'
+    echo '    cargo run --features wgpu --bin kryon-renderer-wgpu -- examples/01_getting_started/hello_world.krb'
     echo ""
     echo "  # Ratatui backend:"
-    echo '    cargo run --features ratatui --bin kryon-renderer-ratatui -- examples/fundamentals/hello_world.krb'
+    echo '    cargo run --features ratatui --bin kryon-renderer-ratatui -- examples/01_getting_started/hello_world.krb'
     echo ""
   '';
 }

@@ -1,5 +1,5 @@
 // crates/kryon-core/src/krb.rs
-use crate::{Element, ElementId, ElementType, PropertyValue, Result, KryonError, TextAlignment, Style, CursorType, InteractionState}; 
+use crate::{Element, ElementId, ElementType, PropertyValue, Result, KryonError, TextAlignment, Style, CursorType, InteractionState, EventType}; 
 use std::collections::HashMap;
 use glam::{Vec2, Vec4};
 
@@ -295,10 +295,18 @@ impl KRBParser {
             }
         }
         
-        // Skip events (TODO: implement properly)
+        // Parse events
         for _ in 0.._event_count {
-            self.read_u8(); // event_type
-            self.read_u8(); // callback_id
+            let event_type_id = self.read_u8();
+            let callback_string_index = self.read_u8() as usize;
+            
+            if let Some(event_type) = self.event_type_from_id(event_type_id) {
+                if callback_string_index < strings.len() {
+                    let callback_name = strings[callback_string_index].clone();
+                    element.event_handlers.insert(event_type, callback_name);
+                    eprintln!("[EVENT] Added {} event handler: {}", self.event_type_name(event_type), strings[callback_string_index]);
+                }
+            }
         }
         
         // Skip child element offsets (TODO: implement properly)
@@ -640,6 +648,29 @@ impl KRBParser {
             self.data[offset + 2],
             self.data[offset + 3],
         ])
+    }
+    
+    fn event_type_from_id(&self, id: u8) -> Option<EventType> {
+        match id {
+            0 => Some(EventType::Click),
+            1 => Some(EventType::Hover),
+            2 => Some(EventType::Focus),
+            3 => Some(EventType::Blur),
+            4 => Some(EventType::Change),
+            5 => Some(EventType::Submit),
+            _ => None,
+        }
+    }
+    
+    fn event_type_name(&self, event_type: EventType) -> &'static str {
+        match event_type {
+            EventType::Click => "Click",
+            EventType::Hover => "Hover",
+            EventType::Focus => "Focus",
+            EventType::Blur => "Blur",
+            EventType::Change => "Change",
+            EventType::Submit => "Submit",
+        }
     }
     
     fn read_color(&mut self) -> Vec4 {

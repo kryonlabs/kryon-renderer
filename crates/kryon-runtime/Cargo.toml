@@ -17,6 +17,7 @@ glam = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 pollster = { workspace = true }
+mlua = { version = "0.9", features = ["luajit", "vendored"] }
 
 [features]
 default = ["wgpu"]
