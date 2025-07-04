@@ -15,7 +15,6 @@ Cargo.lock
 *.exe
 
 # IDE files
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -245,19 +244,6 @@ vgcore.*
 *.ipr
 *.iws
 
-# Eclipse
-.project
-.metadata
-tmp/
-*.tmp
-*.bak
-*.swp
-*~.nib
-local.properties
-.settings/
-.loadpath
-.recommenders
-
 # External tool builders
 .externalToolBuilders/
 
@@ -281,18 +267,6 @@ local.properties
 
 # sbteclipse plugin
 .target
-
-# Tern plugin
-.tern-project
-
-# TeXlipse plugin
-.texlipse
-
-# STS (Spring Tool Suite)
-.springBeans
-
-# Code Recommenders
-.recommenders/
 
 # Annotation Processing
 .apt_generated/
@@ -319,8 +293,5 @@ Session.vim
 auto-save-list
 tramp
 .\#*
-
-# Atom
-.atom/
 
 crates/kryon-ratatui/src/snapshots/
