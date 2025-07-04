@@ -274,7 +274,6 @@ impl RaylibRenderer {
         textures: &mut HashMap<String, Texture2D>,
         command: &RenderCommand,
     ) -> RenderResult<()> {
-        eprintln!("[RAYLIB] Executing command: {:?}", command);
         match command {
             RenderCommand::DrawRect {
                 position,

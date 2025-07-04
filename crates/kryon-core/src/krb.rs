@@ -660,19 +660,23 @@ impl KRBParser {
     
     fn event_type_from_id(&self, id: u8) -> Option<EventType> {
         match id {
-            0 => Some(EventType::Click),
-            1 => Some(EventType::Hover),
-            2 => Some(EventType::Focus),
-            3 => Some(EventType::Blur),
-            4 => Some(EventType::Change),
-            5 => Some(EventType::Submit),
-            _ => None,
+            // --- THIS IS THE CORRECTED MAPPING ---
+            0x01 => Some(EventType::Click),
+            0x02 => Some(EventType::Press),   // Assuming you have this event type
+            0x03 => Some(EventType::Release), // Assuming you have this event type
+            0x04 => Some(EventType::Hover),
+            0x05 => Some(EventType::Focus),
+            0x06 => Some(EventType::Blur),
+            0x07 => Some(EventType::Change),
+            0x08 => Some(EventType::Submit),
+            _ => None, // Safely ignore unknown event types
         }
     }
-    
     fn event_type_name(&self, event_type: EventType) -> &'static str {
         match event_type {
             EventType::Click => "Click",
+            EventType::Press => "Press",
+            EventType::Release => "Release",
             EventType::Hover => "Hover",
             EventType::Focus => "Focus",
             EventType::Blur => "Blur",

@@ -117,6 +117,8 @@ pub enum CursorType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EventType {
     Click,
+    Press,
+    Release,
     Hover,
     Focus,
     Blur,
