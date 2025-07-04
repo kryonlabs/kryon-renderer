@@ -168,41 +168,7 @@ impl RaylibRenderer {
     
     /// Resolve image path by checking multiple locations
     fn resolve_image_path(&self, path: &str) -> Option<String> {
-        // Try the path as-is first (relative to current working directory)
-        if std::path::Path::new(path).exists() {
-            eprintln!("[RAYLIB] Found image at current path: {}", path);
-            return Some(path.to_string());
-        }
-        
-        // Get the KRB file path from command line args if available
-        let args: Vec<String> = std::env::args().collect();
-        if let Some(krb_arg) = args.iter().find(|arg| arg.ends_with(".krb")) {
-            if let Some(krb_dir) = std::path::Path::new(krb_arg).parent() {
-                let krb_relative_path = krb_dir.join(path);
-                if krb_relative_path.exists() {
-                    let resolved = krb_relative_path.to_string_lossy().to_string();
-                    eprintln!("[RAYLIB] Found image relative to KRB: {}", resolved);
-                    return Some(resolved);
-                }
-            }
-        }
-        
-        // Try some common relative paths
-        let common_paths = [
-            format!("assets/{}", path),
-            format!("images/{}", path),
-            format!("resources/{}", path),
-        ];
-        
-        for test_path in &common_paths {
-            if std::path::Path::new(test_path).exists() {
-                eprintln!("[RAYLIB] Found image at common path: {}", test_path);
-                return Some(test_path.clone());
-            }
-        }
-        
-        eprintln!("[RAYLIB] Image not found in any location: {}", path);
-        None
+        resolve_image_path_static(path)
     }
     
     /// Manually poll input events from the OS - this is what EndDrawing() normally does
@@ -407,7 +373,7 @@ impl RaylibRenderer {
                         source, position.x, position.y, size.x, size.y);
                 } else {
                     // No cached texture - draw appropriate placeholder
-                    let resolved_path = self.resolve_image_path(source);
+                    let resolved_path = resolve_image_path_static(source);
                     if resolved_path.is_some() {
                         // File exists but failed to load or wasn't cached
                         let error_color = Color::new(150, 50, 50, (*opacity * 255.0) as u8);
@@ -557,4 +523,43 @@ fn raylib_key_to_kryon_key(key: KeyboardKey) -> Option<KeyCode> {
         
         _ => None,
     }
+}
+
+/// Resolve image path by checking multiple locations
+fn resolve_image_path_static(path: &str) -> Option<String> {
+    // Try the path as-is first (relative to current working directory)
+    if std::path::Path::new(path).exists() {
+        eprintln!("[RAYLIB] Found image at current path: {}", path);
+        return Some(path.to_string());
+    }
+    
+    // Get the KRB file path from command line args if available
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(krb_arg) = args.iter().find(|arg| arg.ends_with(".krb")) {
+        if let Some(krb_dir) = std::path::Path::new(krb_arg).parent() {
+            let krb_relative_path = krb_dir.join(path);
+            if krb_relative_path.exists() {
+                let resolved = krb_relative_path.to_string_lossy().to_string();
+                eprintln!("[RAYLIB] Found image relative to KRB: {}", resolved);
+                return Some(resolved);
+            }
+        }
+    }
+    
+    // Try some common relative paths
+    let common_paths = [
+        format!("assets/{}", path),
+        format!("images/{}", path),
+        format!("resources/{}", path),
+    ];
+    
+    for test_path in &common_paths {
+        if std::path::Path::new(test_path).exists() {
+            eprintln!("[RAYLIB] Found image at common path: {}", test_path);
+            return Some(test_path.clone());
+        }
+    }
+    
+    eprintln!("[RAYLIB] Image not found in any location: {}", path);
+    None
 }
