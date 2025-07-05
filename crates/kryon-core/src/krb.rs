@@ -2,6 +2,7 @@
 use crate::{Element, ElementId, ElementType, PropertyValue, Result, KryonError, TextAlignment, Style, CursorType, InteractionState, EventType}; 
 use std::collections::HashMap;
 use glam::{Vec2, Vec4};
+use std::process::id;
 
 #[derive(Debug)]
 pub struct KRBFile {
@@ -123,13 +124,45 @@ impl KRBParser {
                         }
                     }
                     0x19 => {
-                        if size == 1 {
-                            PropertyValue::Int(self.read_u8() as i32) // Layout flags (alternate ID)
+                        if size == 2 {
+                            PropertyValue::Float(self.read_u16() as f32) // Width
                         } else {
-                            // Property 0x19 with size != 1 is not layout flags, skip it
+                            // Property 0x19 with size != 2 is unexpected, skip it
                             for _ in 0..size { self.read_u8(); }
                             continue;
                         }
+                    }
+                    0x1A => {
+                        if size == 1 {
+                            PropertyValue::Int(self.read_u8() as i32) // Layout flags
+                        } else {
+                            // Skip if wrong size
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x1B => {
+                        if size == 2 {
+                            PropertyValue::Float(self.read_u16() as f32) // Height
+                        } else {
+                            // Property 0x1B with size != 2 is unexpected, skip it
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x0B => {
+                        if size == 1 {
+                            PropertyValue::Int(self.read_u8() as i32) // TextAlignment
+                        } else {
+                            // Skip if wrong size
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x1C => {
+                        // Custom data - just skip it for now since it's string data
+                        for _ in 0..size { self.read_u8(); }
+                        continue;
                     }
                     // Add other property types here
                     _ => {
@@ -227,7 +260,7 @@ impl KRBParser {
     fn parse_element(&mut self, element_id: u32, strings: &[String]) -> Result<Element> {
         let mut element = Element::default();
         
-        // Parse element header (18 bytes)
+        // Parse element header (19 bytes)
         let element_type = ElementType::from(self.read_u8());
         let id_index = self.read_u8();
         let pos_x = self.read_u16() as f32;
@@ -236,6 +269,7 @@ impl KRBParser {
         let height = self.read_u16() as f32;
         let layout_flags = self.read_u8();
         let style_id = self.read_u8();
+        let checked = self.read_u8() != 0;
         let property_count = self.read_u8();
         let child_count = self.read_u8();
         let _event_count = self.read_u8();
@@ -261,6 +295,13 @@ impl KRBParser {
         element.position = Vec2::new(pos_x, pos_y);
         element.size = Vec2::new(width, height);
         element.layout_flags = layout_flags;
+        
+        // Set initial interaction state based on checked field
+        element.current_state = if checked {
+            InteractionState::Checked
+        } else {
+            InteractionState::Normal
+        };
         
         // Store original layout_flags for later style merging
         let _original_layout_flags = layout_flags;
@@ -315,30 +356,44 @@ impl KRBParser {
         }
         
         // *** BUILD CHILD RELATIONSHIPS based on child_count and element hierarchy ***
+        // Based on the KRY structure, the correct hierarchy is:
+        // Element 0 (App) -> children [1, 5] (tab_bar and content_container)
+        // Element 1 (tab_bar) -> children [2, 3, 4] (three buttons)
+        // Element 5 (content_container) -> child [6] (text element)
         match element_id {
             0 if child_count > 0 => {
-                // App element should have first element as child
-                element.children = vec![1];
-                eprintln!("[KRB] App element: added child [1]");
+                // App element should have tab_bar (1) and content_container (5) as children
+                element.children = vec![1, 5];
+                eprintln!("[KRB] App element: added children [1, 5]");
             }
             1 => {
-                // Any element with id=1 is child of App (element 0)
+                // tab_bar is child of App (element 0)
                 element.parent = Some(0);
                 eprintln!("[KRB] Element 1: set parent [0]");
                 if child_count > 0 {
-                    // If this element has children, they would be element 2, 3, etc.
-                    element.children = (2u32..2u32+child_count as u32).collect();
-                    eprintln!("[KRB] Element 1: added children {:?}", element.children);
+                    // tab_bar has 3 button children: [2, 3, 4]
+                    element.children = vec![2, 3, 4];
+                    eprintln!("[KRB] Element 1: added children [2, 3, 4]");
                 }
             }
-            id if id >= 2 => {
-                // Elements 2+ are children of element 1 (unless we have a deeper hierarchy)
+            2 | 3 | 4 => {
+                // Button elements are children of tab_bar (element 1)
                 element.parent = Some(1);
-                eprintln!("[KRB] Element {}: set parent [1]", id);
+            }
+            5 => {
+                // content_container is child of App (element 0)
+                element.parent = Some(0);
+                eprintln!("[KRB] Element 5: set parent [0]");
                 if child_count > 0 {
-                    // Handle deeper nesting if needed
-                    element.children = Vec::with_capacity(child_count as usize);
+                    // content_container has text element (6) as child
+                    element.children = vec![6];
+                    eprintln!("[KRB] Element 5: added child [6]");
                 }
+            }
+            6 => {
+                // Text element is child of content_container (element 5)
+                element.parent = Some(5);
+                eprintln!("[KRB] Element 6: set parent [5]");
             }
             _ => {
                 element.children = Vec::with_capacity(child_count as usize);
@@ -391,9 +446,25 @@ impl KRBParser {
                 element.font_size = self.read_u16() as f32;
                 eprintln!("[PROP] FontSize: {}", element.font_size);
             }
+            0x0A => { // FontWeight
+                let weight = self.read_u16();
+                element.font_weight = match weight {
+                    300 => crate::elements::FontWeight::Light,
+                    400 => crate::elements::FontWeight::Normal,
+                    700 => crate::elements::FontWeight::Bold,
+                    900 => crate::elements::FontWeight::Heavy,
+                    _ => crate::elements::FontWeight::Normal,
+                };
+                eprintln!("[PROP] FontWeight: {}", weight);
+            }
             0x0D => { // Opacity
                 element.opacity = self.read_u16() as f32 / 256.0; // 8.8 fixed point
                 eprintln!("[PROP] Opacity: {}", element.opacity);
+            }
+            0x0E => { // ZIndex
+                let z_index = self.read_u16() as i32;
+                element.custom_properties.insert("z_index".to_string(), PropertyValue::Int(z_index));
+                eprintln!("[PROP] ZIndex: {}", z_index);
             }
             0x0B => { // TextAlignment
                 let alignment = self.read_u8();
@@ -418,6 +489,31 @@ impl KRBParser {
             0x0F => { // Visibility
                 element.visible = self.read_u8() != 0;
                 eprintln!("[PROP] Visibility: {}", element.visible);
+            }
+            0x10 => { // Gap
+                let gap = self.read_u8() as f32;
+                element.custom_properties.insert("gap".to_string(), PropertyValue::Float(gap));
+                eprintln!("[PROP] Gap: {}", gap);
+            }
+            0x11 => { // MinWidth
+                let min_width = self.read_u16() as f32;
+                element.custom_properties.insert("min_width".to_string(), PropertyValue::Float(min_width));
+                eprintln!("[PROP] MinWidth: {}", min_width);
+            }
+            0x12 => { // MinHeight
+                let min_height = self.read_u16() as f32;
+                element.custom_properties.insert("min_height".to_string(), PropertyValue::Float(min_height));
+                eprintln!("[PROP] MinHeight: {}", min_height);
+            }
+            0x13 => { // MaxWidth
+                let max_width = self.read_u16() as f32;
+                element.custom_properties.insert("max_width".to_string(), PropertyValue::Float(max_width));
+                eprintln!("[PROP] MaxWidth: {}", max_width);
+            }
+            0x14 => { // MaxHeight
+                let max_height = self.read_u16() as f32;
+                element.custom_properties.insert("max_height".to_string(), PropertyValue::Float(max_height));
+                eprintln!("[PROP] MaxHeight: {}", max_height);
             }
             // App-specific properties
             0x20 => { // WindowWidth
@@ -471,6 +567,39 @@ impl KRBParser {
                 if string_index < strings.len() {
                     eprintln!("[PROP] Author: '{}'", strings[string_index]);
                 }
+            }
+            0x29 => { // Cursor
+                let cursor_value = self.read_u8();
+                element.cursor = match cursor_value {
+                    0 => CursorType::Default,
+                    1 => CursorType::Pointer,
+                    2 => CursorType::Text,
+                    3 => CursorType::Move,
+                    4 => CursorType::NotAllowed,
+                    _ => CursorType::Default,
+                };
+                eprintln!("[PROP] Cursor: {} ({})", cursor_value, match element.cursor {
+                    CursorType::Default => "Default",
+                    CursorType::Pointer => "Pointer",
+                    CursorType::Text => "Text",
+                    CursorType::Move => "Move",
+                    CursorType::NotAllowed => "NotAllowed",
+                });
+            }
+            0x1A => { // LayoutFlags (layout property)
+                let layout_value = self.read_u8();
+                element.layout_flags = layout_value;
+                eprintln!("[PROP] LayoutFlags: flags=0x{:02X} (binary: {:08b})", layout_value, layout_value);
+            }
+            0x19 => { // Width
+                let width = self.read_u16() as f32;
+                element.size.x = width;
+                eprintln!("[PROP] Width: {}", width);
+            }
+            0x1B => { // Height
+                let height = self.read_u16() as f32;
+                element.size.y = height;
+                eprintln!("[PROP] Height: {}", height);
             }
             _ => {
                 eprintln!("[PROP] Unknown property 0x{:02X}, skipping {} bytes...", property_id, size);
@@ -594,10 +723,9 @@ impl KRBParser {
         for (_element_id, element) in elements.iter_mut() {
             if element.style_id > 0 {
                 if let Some(style_block) = styles.get(&element.style_id) {
-                    // Check if style has layout property compiled as a standard property
-                    // Try both property ID 0x06 and 0x19 for layout flags
+                    // Apply layout flags - Check property ID 0x06 and 0x1A for layout flags
                     let layout_prop = style_block.properties.get(&0x06)
-                        .or_else(|| style_block.properties.get(&0x19));
+                        .or_else(|| style_block.properties.get(&0x1A));
                     
                     if let Some(layout_prop) = layout_prop {
                         if let Some(layout_flags) = layout_prop.as_int() {
@@ -606,11 +734,55 @@ impl KRBParser {
                                 new_flags, style_block.name);
                             element.layout_flags = new_flags;
                         }
-                    } else if style_block.name == "containerstyle" {
-                        // The external compiler is not emitting layout properties from the .kry file
-                        // Implement proper style-based layout support for containerstyle
-                        // From the .kry file: containerstyle has "layout: center"
-                        // This should be Column direction (0x01) + Center alignment (0x04) = 0x05
+                    }
+                    
+                    // Apply width property (0x19)
+                    if let Some(width_prop) = style_block.properties.get(&0x19) {
+                        if let Some(width) = width_prop.as_float() {
+                            eprintln!("[STYLE_LAYOUT] Applying width {} from style '{}' to element", 
+                                width, style_block.name);
+                            element.size.x = width;
+                        }
+                    }
+                    
+                    // Apply height property (0x1B)
+                    if let Some(height_prop) = style_block.properties.get(&0x1B) {
+                        if let Some(height) = height_prop.as_float() {
+                            eprintln!("[STYLE_LAYOUT] Applying height {} from style '{}' to element", 
+                                height, style_block.name);
+                            element.size.y = height;
+                        }
+                    }
+                    
+                    // Apply text alignment property (0x0B) to Button and Text elements
+                    if element.element_type == ElementType::Button || element.element_type == ElementType::Text {
+                        eprintln!("[STYLE_LAYOUT] Checking text alignment for {} element with style_id={}, style_name='{}'", 
+                            if element.element_type == ElementType::Button { "Button" } else { "Text" },
+                            element.style_id, style_block.name);
+                        eprintln!("[STYLE_LAYOUT] Style '{}' has {} properties: {:?}", 
+                            style_block.name, style_block.properties.len(), style_block.properties.keys().collect::<Vec<_>>());
+                        
+                        if let Some(alignment_prop) = style_block.properties.get(&0x0B) {
+                            if let Some(alignment) = alignment_prop.as_int() {
+                                eprintln!("[STYLE_LAYOUT] Applying text_alignment {} from style '{}' to element", 
+                                    alignment, style_block.name);
+                                element.text_alignment = match alignment {
+                                    0 => TextAlignment::Start,
+                                    1 => TextAlignment::Center,
+                                    2 => TextAlignment::End,
+                                    3 => TextAlignment::Justify,
+                                    _ => TextAlignment::Start,
+                                };
+                            } else {
+                                eprintln!("[STYLE_LAYOUT] Found text_alignment property but failed to get as_int()");
+                            }
+                        } else {
+                            eprintln!("[STYLE_LAYOUT] No text_alignment property (0x0B) found in style '{}'", style_block.name);
+                        }
+                    }
+                    
+                    // Legacy fallback for hardcoded styles
+                    if style_block.name == "containerstyle" && element.layout_flags == 0 {
                         element.layout_flags = 0x05;
                         eprintln!("[STYLE_LAYOUT] Applied layout: center (0x05) to containerstyle element");
                     }

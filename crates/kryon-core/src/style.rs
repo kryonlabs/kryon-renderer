@@ -59,11 +59,11 @@ impl StyleComputer {
     
     /// Computes the final style for a given element in a specific interaction state.
     pub fn compute_with_state(&self, element_id: ElementId, state: crate::InteractionState) -> ComputedStyle {
-        // If style is already computed for this element+state combination, return it from cache.
+        // Temporarily disable cache to debug state changes
         let cache_key = (element_id, state);
-        if let Some(cached_style) = self.cache.borrow().get(&cache_key) {
-            return *cached_style;
-        }
+        // if let Some(cached_style) = self.cache.borrow().get(&cache_key) {
+        //     return *cached_style;
+        // }
 
         let element = self.elements.get(&element_id)
             .expect("Element ID must exist");
@@ -85,17 +85,27 @@ impl StyleComputer {
         };
 
 
-        // STEP 2: Apply Its Own Style Block
+        // STEP 2: Apply Its Own Style Block (but only for non-interactive states)
         if element.style_id > 0 {
             if let Some(style_block) = self.styles.get(&element.style_id) {
                 // Apply all properties from the referenced style block
                 for (prop_id, prop_value) in &style_block.properties {
                     match *prop_id {
-                        0x01 => if let Some(c) = prop_value.as_color() { 
-                            computed_style.background_color = c; 
+                        0x01 => { 
+                            // For checked state, don't override background with style block
+                            if state != crate::InteractionState::Checked {
+                                if let Some(c) = prop_value.as_color() { 
+                                    computed_style.background_color = c; 
+                                }
+                            }
                         }
-                        0x02 => if let Some(c) = prop_value.as_color() { 
-                            computed_style.text_color = c; 
+                        0x02 => { 
+                            // For checked state, don't override text color with style block  
+                            if state != crate::InteractionState::Checked {
+                                if let Some(c) = prop_value.as_color() { 
+                                    computed_style.text_color = c; 
+                                }
+                            }
                         }
                         0x03 => if let Some(c) = prop_value.as_color() { 
                             computed_style.border_color = c; 
@@ -105,6 +115,18 @@ impl StyleComputer {
                         }
                         0x05 => if let Some(f) = prop_value.as_float() { 
                             computed_style.border_radius = f; 
+                        }
+                        0x19 => {
+                            // Width property - need to apply to element size
+                            // Since we can't modify element here, we'll need a different approach
+                        }
+                        0x1A => {
+                            // Layout flags - need to apply to element layout
+                            // Since we can't modify element here, we'll need a different approach  
+                        }
+                        0x1B => {
+                            // Height property - need to apply to element size
+                            // Since we can't modify element here, we'll need a different approach
                         }
                         _ => {}
                     }
@@ -129,7 +151,11 @@ impl StyleComputer {
 
         // STEP 5: Apply intelligent default interaction effects for buttons
         if element.element_type == crate::ElementType::Button {
+            eprintln!("[STYLE_DEBUG] Button element {}: state={:?}, bg_before={:?}", 
+                     element_id, state, computed_style.background_color);
             computed_style = Self::apply_button_interaction_defaults(computed_style, state);
+            eprintln!("[STYLE_DEBUG] Button element {}: bg_after={:?}", 
+                     element_id, computed_style.background_color);
         }
 
         // Store the final computed style in the cache and return it.
@@ -165,8 +191,9 @@ impl StyleComputer {
     /// Intelligently applies default interaction states for buttons based on their base color
     /// Only applies if explicit state styles are not defined (future-proof)
     fn apply_button_interaction_defaults(mut style: ComputedStyle, state: crate::InteractionState) -> ComputedStyle {
-        // Only apply defaults if the button has a visible background
-        if style.background_color.w <= 0.0 {
+        // For checked state, always apply styling even if background is transparent
+        // For other states, only apply defaults if the button has a visible background
+        if style.background_color.w <= 0.0 && state != crate::InteractionState::Checked {
             return style;
         }
         
@@ -187,7 +214,11 @@ impl StyleComputer {
                 // Apply intelligent focus effects
                 Self::apply_button_focus_defaults(&mut style);
             }
-            _ => {} // Disabled, Checked, etc. - no defaults for now
+            crate::InteractionState::Checked => {
+                // Apply intelligent checked/selected effects
+                Self::apply_button_checked_defaults(&mut style);
+            }
+            _ => {} // Disabled, etc. - no defaults for now
         }
         
         style
@@ -253,6 +284,29 @@ impl StyleComputer {
             style.border_color = Self::blend_colors(style.border_color, blue_tint, 0.5);
             style.border_width = (style.border_width * 1.3).min(3.0);
         }
+    }
+    
+    /// Apply intelligent defaults for button checked state (e.g., for tab buttons)
+    fn apply_button_checked_defaults(style: &mut ComputedStyle) {
+        eprintln!("[CHECKED_STYLE] Applying checked defaults: bg_before={:?}", style.background_color);
+        
+        // For checked/selected buttons (like active tabs), use a distinctive color
+        // This provides visual feedback for the "selected" state
+        
+        // Apply a distinct checked background - typically a more saturated/bright color
+        // Using a blue tone to indicate "selected/active" state (like browser tabs)
+        style.background_color = Vec4::new(0.0, 0.4, 0.8, 1.0); // Blue (#0066CC)
+        
+        // Ensure good text contrast for checked state
+        style.text_color = Vec4::new(1.0, 1.0, 1.0, 1.0); // White text for good contrast
+        
+        // Add a subtle border to emphasize the selected state
+        if style.border_color.w <= 0.0 {
+            style.border_color = Vec4::new(0.0, 0.3, 0.6, 1.0); // Darker blue border
+            style.border_width = 1.0;
+        }
+        
+        eprintln!("[CHECKED_STYLE] Applied checked defaults: bg_after={:?}", style.background_color);
     }
     
     /// Calculate the brightness of a color (0.0 = black, 1.0 = white)

@@ -81,6 +81,9 @@ impl<R: CommandRenderer> KryonApp<R> {
         // Initialize scripts
         app.script_system.load_scripts(&app.krb_file.scripts)?;
         
+        // Setup bridge functions for script-element interaction
+        app.script_system.setup_bridge_functions(&app.elements, &app.krb_file)?;
+        
         // Force initial layout computation
         app.update_layout()?;
         
@@ -206,12 +209,14 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
         // Update the cursor through the renderer
         self.renderer.backend_mut().set_cursor(cursor_type);
         
-        // Update hover states
+        // Update hover states (but preserve checked state)
         for (element_id, element) in self.elements.iter_mut() {
             let should_hover = Some(*element_id) == hovered_element;
             let was_hovering = element.current_state == InteractionState::Hover;
+            let is_checked = element.current_state == InteractionState::Checked;
             
-            if should_hover && !was_hovering {
+            if should_hover && !was_hovering && !is_checked {
+                // Only set hover if not already in checked state
                 element.current_state = InteractionState::Hover;
                 self.needs_render = true;
                 
@@ -219,10 +224,12 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
                 if let Some(handler) = element.event_handlers.get(&EventType::Hover) {
                     self.script_system.call_function(handler, vec![])?;
                 }
-            } else if !should_hover && was_hovering {
+            } else if !should_hover && was_hovering && !is_checked {
+                // Only reset to normal if not in checked state
                 element.current_state = InteractionState::Normal;
                 self.needs_render = true;
             }
+            // If element is checked, preserve the checked state regardless of hover
         }
         
         Ok(())
@@ -243,13 +250,34 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
     fn handle_mouse_release(&mut self, position: Vec2, button: MouseButton) -> anyhow::Result<()> {
         if button == MouseButton::Left {
             if let Some(element_id) = self.find_element_at_position(position) {
-                if let Some(element) = self.elements.get_mut(&element_id) {
-                    element.current_state = InteractionState::Hover;
-                    self.needs_render = true;
-                    
-                    // Trigger click event
+                // Trigger click event first, before changing any states
+                if let Some(element) = self.elements.get(&element_id) {
                     if let Some(handler) = element.event_handlers.get(&EventType::Click) {
                         self.script_system.call_function(handler, vec![])?;
+                        
+                        // Apply any pending changes from scripts
+                        let style_changes = self.script_system.apply_pending_style_changes(&mut self.elements)?;
+                        let state_changes = self.script_system.apply_pending_state_changes(&mut self.elements)?;
+                        let text_changes = self.script_system.apply_pending_text_changes(&mut self.elements)?;
+                        
+                        if style_changes || state_changes || text_changes {
+                            tracing::info!("Changes applied, triggering re-render");
+                            self.needs_render = true;
+                        }
+                        
+                        // After script changes are applied, set hover state only for non-checked elements
+                        if let Some(element) = self.elements.get_mut(&element_id) {
+                            if element.current_state != InteractionState::Checked {
+                                element.current_state = InteractionState::Hover;
+                                self.needs_render = true;
+                            }
+                        }
+                    } else {
+                        // No click handler, just set hover state
+                        if let Some(element) = self.elements.get_mut(&element_id) {
+                            element.current_state = InteractionState::Hover;
+                            self.needs_render = true;
+                        }
                     }
                 }
             }

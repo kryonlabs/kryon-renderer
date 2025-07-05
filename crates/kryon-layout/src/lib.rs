@@ -273,6 +273,7 @@ fn layout_flex_children_with_scale(
 
             // For text elements, compute intrinsic size based on text content
             let is_text_element = child.element_type == kryon_core::ElementType::Text;
+            let is_button_element = child.element_type == kryon_core::ElementType::Button;
             
             let intrinsic_size = if is_text_element {
                 // Estimate text size: ~8 pixels per character width, font_size height
@@ -283,22 +284,58 @@ fn layout_flex_children_with_scale(
                 };
                 let text_height = child.font_size.max(16.0);
                 Vec2::new(text_width, text_height)
-            } else {
-                let constraints = ConstraintBox {
-                    min_width: 0.0,
-                    max_width: if is_row { f32::INFINITY } else { parent_size.x },
-                    min_height: 0.0,
-                    max_height: if is_row { parent_size.y } else { f32::INFINITY },
-                    definite_width: !is_row,
-                    definite_height: is_row,
+            } else if is_button_element {
+                // For buttons with grow layout, use minimal intrinsic size so they can expand
+                let child_layout = LayoutFlags::from_bits(child.layout_flags);
+                let button_width = if child_layout.grow {
+                    // Minimal width for buttons that need to grow to fill space
+                    if !child.text.is_empty() {
+                        // Just enough for text without padding
+                        (child.text.len() as f32 * 8.0).min(120.0)
+                    } else {
+                        40.0 // Minimal width for empty button
+                    }
+                } else {
+                    // Fixed-size buttons: text + padding
+                    if !child.text.is_empty() {
+                        (child.text.len() as f32 * 8.0) + 32.0
+                    } else {
+                        80.0 // Default width for button with no text
+                    }
                 };
-                self.compute_element_size(child, constraints)
+                let button_height = child.size.y.max(32.0); // Use explicit height or default
+                Vec2::new(button_width, button_height)
+            } else {
+                // For other elements (containers, etc.)
+                let is_container = child.element_type == kryon_core::ElementType::Container;
+                
+                if child.size.x > 0.0 || child.size.y > 0.0 {
+                    // Use explicit sizes if set
+                    Vec2::new(
+                        if child.size.x > 0.0 { child.size.x } else { 
+                            if is_container { parent_size.x } else { 100.0 }
+                        },
+                        if child.size.y > 0.0 { child.size.y } else { 100.0 }
+                    )
+                } else {
+                    // Default intrinsic sizes
+                    if is_container {
+                        // Containers take full parent width by default
+                        Vec2::new(parent_size.x, 100.0)
+                    } else {
+                        // Other elements use fixed defaults
+                        Vec2::new(100.0, 100.0)
+                    }
+                }
             };
             
             eprintln!("[FLEX_SIZE] Child {}: is_text={}, intrinsic_size={:?}", 
                 child.id, is_text_element, intrinsic_size);
             let flex_basis = if is_row { intrinsic_size.x } else { intrinsic_size.y };
-            let flex_grow = if layout.grow { 1.0 } else { 0.0 };
+            let child_layout = LayoutFlags::from_bits(child.layout_flags);
+            let flex_grow = if child_layout.grow { 1.0 } else { 0.0 };
+            eprintln!("[FLEX_GROW] Child {}: child_layout.grow={}, flex_grow={}, layout_flags=0x{:02X}", 
+                child.id, child_layout.grow, flex_grow, child.layout_flags);
             
             flex_items.push(FlexItem {
                 element_id: child_id,
@@ -317,6 +354,9 @@ fn layout_flex_children_with_scale(
     // Distribute remaining space
     let container_main_size = if is_row { parent_size.x } else { parent_size.y };
     let remaining_space = (container_main_size - used_space).max(0.0);
+    
+    eprintln!("[FLEX_GROW_TOTAL] total_flex_grow={}, remaining_space={}, container_main_size={}, used_space={}", 
+        total_flex_grow, remaining_space, container_main_size, used_space);
     
     if remaining_space > 0.0 && total_flex_grow > 0.0 {
         for item in &mut flex_items {

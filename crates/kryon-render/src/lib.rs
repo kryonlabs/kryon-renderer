@@ -213,6 +213,8 @@ impl<R: CommandRenderer> ElementRenderer<R> {
             if text_color.w > 0.0 {
                 // The position for the text block is the same as the element's bounding box.
                 // The renderer backend (e.g., Ratatui) will handle alignment within that box.
+                eprintln!("[RENDER_TEXT] Element {}: text='{}', alignment={:?}, size={:?}", 
+                    element.id, element.text, element.text_alignment, size);
                 commands.push(RenderCommand::DrawText {
                     position, // Use the element's top-left corner.
                     text: element.text.clone(),
