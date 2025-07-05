@@ -259,8 +259,9 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
                         let style_changes = self.script_system.apply_pending_style_changes(&mut self.elements)?;
                         let state_changes = self.script_system.apply_pending_state_changes(&mut self.elements)?;
                         let text_changes = self.script_system.apply_pending_text_changes(&mut self.elements)?;
+                        let visibility_changes = self.script_system.apply_pending_visibility_changes(&mut self.elements)?;
                         
-                        if style_changes || state_changes || text_changes {
+                        if style_changes || state_changes || text_changes || visibility_changes {
                             tracing::info!("Changes applied, triggering re-render");
                             self.needs_render = true;
                         }

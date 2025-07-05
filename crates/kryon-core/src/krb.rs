@@ -255,6 +255,9 @@ impl KRBParser {
             elements.insert(element_id as u32, element);
         }
         
+        // Build parent-child relationships from tree structure
+        self.build_element_hierarchy(&mut elements, header.element_count as u32);
+        
         Ok(elements)
     }
     fn parse_element(&mut self, element_id: u32, strings: &[String]) -> Result<Element> {
@@ -355,53 +358,59 @@ impl KRBParser {
             self.read_u16(); // child offset
         }
         
-        // *** BUILD CHILD RELATIONSHIPS based on child_count and element hierarchy ***
-        // Based on the KRY structure, the correct hierarchy is:
-        // Element 0 (App) -> children [1, 5] (tab_bar and content_container)
-        // Element 1 (tab_bar) -> children [2, 3, 4] (three buttons)
-        // Element 5 (content_container) -> child [6] (text element)
-        match element_id {
-            0 if child_count > 0 => {
-                // App element should have tab_bar (1) and content_container (5) as children
-                element.children = vec![1, 5];
-                eprintln!("[KRB] App element: added children [1, 5]");
-            }
-            1 => {
-                // tab_bar is child of App (element 0)
-                element.parent = Some(0);
-                eprintln!("[KRB] Element 1: set parent [0]");
-                if child_count > 0 {
-                    // tab_bar has 3 button children: [2, 3, 4]
-                    element.children = vec![2, 3, 4];
-                    eprintln!("[KRB] Element 1: added children [2, 3, 4]");
-                }
-            }
-            2 | 3 | 4 => {
-                // Button elements are children of tab_bar (element 1)
-                element.parent = Some(1);
-            }
-            5 => {
-                // content_container is child of App (element 0)
-                element.parent = Some(0);
-                eprintln!("[KRB] Element 5: set parent [0]");
-                if child_count > 0 {
-                    // content_container has text element (6) as child
-                    element.children = vec![6];
-                    eprintln!("[KRB] Element 5: added child [6]");
-                }
-            }
-            6 => {
-                // Text element is child of content_container (element 5)
-                element.parent = Some(5);
-                eprintln!("[KRB] Element 6: set parent [5]");
-            }
-            _ => {
-                element.children = Vec::with_capacity(child_count as usize);
-            }
-        }
+        // Initialize children vector based on child_count
+        element.children = Vec::with_capacity(child_count as usize);
         
         Ok(element)
     }
+    
+    fn build_element_hierarchy(&self, elements: &mut HashMap<u32, Element>, element_count: u32) {
+        // Build parent-child relationships based on tree structure
+        // Elements are written in depth-first traversal order
+        
+        let mut parent_stack = vec![0u32]; // Start with root element
+        let mut remaining_children: Vec<u32> = Vec::new();
+        
+        // Initialize remaining children counts
+        for i in 0..element_count {
+            if let Some(element) = elements.get(&i) {
+                remaining_children.push(element.children.capacity() as u32);
+            } else {
+                remaining_children.push(0);
+            }
+        }
+        
+        // Process elements in order, assigning parents
+        for element_id in 1..element_count { // Skip root element (0)
+            // Find the current parent (top of stack with remaining children)
+            while let Some(&current_parent) = parent_stack.last() {
+                if remaining_children[current_parent as usize] > 0 {
+                    // This element is a child of current_parent
+                    if let Some(parent) = elements.get_mut(&current_parent) {
+                        parent.children.push(element_id);
+                        eprintln!("[KRB] Element {}: added child {}", current_parent, element_id);
+                    }
+                    
+                    if let Some(child) = elements.get_mut(&element_id) {
+                        child.parent = Some(current_parent);
+                        eprintln!("[KRB] Element {}: set parent [{}]", element_id, current_parent);
+                    }
+                    
+                    remaining_children[current_parent as usize] -= 1;
+                    
+                    // If this element has children, add it to the stack
+                    if remaining_children[element_id as usize] > 0 {
+                        parent_stack.push(element_id);
+                    }
+                    break;
+                } else {
+                    // Current parent has no more children, pop it
+                    parent_stack.pop();
+                }
+            }
+        }
+    }
+    
     fn parse_standard_property(&mut self, element: &mut Element, strings: &[String]) -> Result<()> {
         let property_id = self.read_u8();
         let value_type = self.read_u8();
