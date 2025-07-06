@@ -257,10 +257,10 @@ fn layout_flex_children_with_scale(
     // Collect flex items and measure their initial sizes
     for &child_id in &parent.children {
         if let Some(child) = elements.get(&child_id) {
-            // NEW: If a child has an explicit position, treat it like an absolute element
-            // and do not include it in the flexbox flow calculation.
-            if child.position != Vec2::ZERO {
-                eprintln!("[LAYOUT_FLEX] Child {} at {:?} has absolute position, skipping flex flow.", child.id, child.position);
+            // Check if child has absolute layout flag set
+            let child_layout = LayoutFlags::from_bits(child.layout_flags);
+            if child_layout.direction == LayoutDirection::Absolute || child.position != Vec2::ZERO {
+                eprintln!("[LAYOUT_FLEX] Child {} has absolute positioning (layout={:?}, pos={:?}), skipping flex flow.", child.id, child_layout.direction, child.position);
                 let constraints = ConstraintBox {
                     min_width: 0.0, max_width: f32::INFINITY,
                     min_height: 0.0, max_height: f32::INFINITY,
@@ -466,8 +466,13 @@ fn layout_flex_children_with_scale(
         scale_factor: f32,
         result: &mut LayoutResult,
     ) {
+        eprintln!("[LAYOUT_ABSOLUTE] Parent {} has {} children for absolute positioning", parent.id, parent.children.len());
+        
         for &child_id in &parent.children {
             if let Some(child) = elements.get(&child_id) {
+                eprintln!("[LAYOUT_ABSOLUTE] Child {}: pos=({}, {}), size=({}, {})", 
+                    child.id, child.position.x, child.position.y, child.size.x, child.size.y);
+                
                 let constraints = ConstraintBox {
                     min_width: 0.0,
                     max_width: f32::INFINITY,
@@ -477,12 +482,22 @@ fn layout_flex_children_with_scale(
                     definite_height: false,
                 };
                 
+                // For absolute positioning, use child's position directly relative to parent
+                // All content panels should overlap at the same position
+                let absolute_offset = parent_offset + Vec2::new(
+                    child.position.x * scale_factor,
+                    child.position.y * scale_factor
+                );
+                
+                eprintln!("[LAYOUT_ABSOLUTE] Final offset for {}: {:?} (parent_offset={:?}, child_pos={:?})", 
+                    child.id, absolute_offset, parent_offset, child.position);
+                
                 self.layout_element_with_scale(
                     elements,
                     child_id,
                     child,
                     constraints,
-                    parent_offset,
+                    absolute_offset,
                     scale_factor,
                     result,
                 );

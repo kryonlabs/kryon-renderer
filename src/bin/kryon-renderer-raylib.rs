@@ -41,6 +41,10 @@ struct Args {
     /// Duration to wait before taking screenshot (in milliseconds)
     #[arg(long, default_value = "100")]
     screenshot_delay: u64,
+    
+    /// Enable standalone rendering mode (auto-wrap non-App elements)
+    #[arg(long)]
+    standalone: bool,
 }
 
 fn main() -> Result<()> {
@@ -91,10 +95,36 @@ fn main() -> Result<()> {
         }
     }
 
+    // Check if we're in standalone mode (auto-generated App)
+    let is_standalone = if let Some(root_id) = krb_file.root_element_id {
+        if let Some(root_element) = krb_file.elements.get(&root_id) {
+            args.standalone || root_element.id == "auto_generated_app"
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    
     // Allow CLI arguments to override KRB file properties
-    let final_width = args.width.unwrap_or(width);
-    let final_height = args.height.unwrap_or(height);
-    let final_title = args.title.clone().unwrap_or(title);
+    // In standalone mode, prefer CLI arguments over KRB file properties
+    let final_width = if is_standalone {
+        args.width.unwrap_or(800) // Default for standalone
+    } else {
+        args.width.unwrap_or(width)
+    };
+    
+    let final_height = if is_standalone {
+        args.height.unwrap_or(600) // Default for standalone
+    } else {
+        args.height.unwrap_or(height)
+    };
+    
+    let final_title = if is_standalone {
+        args.title.clone().unwrap_or_else(|| "Kryon Standalone Renderer".to_string())
+    } else {
+        args.title.clone().unwrap_or(title)
+    };
     
     info!("Initializing Raylib renderer with properties: {}x{} '{}'", final_width, final_height, &final_title);
     

@@ -29,6 +29,10 @@ struct Args {
     /// Inspect KRB file contents without rendering
     #[arg(long)]
     inspect: bool,
+    
+    /// Enable standalone rendering mode (auto-wrap non-App elements)
+    #[arg(long)]
+    standalone: bool,
 }
 
 fn main() -> Result<()> {

@@ -84,6 +84,9 @@ impl<R: CommandRenderer> KryonApp<R> {
         // Setup bridge functions for script-element interaction
         app.script_system.setup_bridge_functions(&app.elements, &app.krb_file)?;
         
+        // Register DOM functions for element traversal and manipulation
+        app.script_system.register_dom_functions(&app.elements, &app.krb_file)?;
+        
         // Force initial layout computation
         app.update_layout()?;
         

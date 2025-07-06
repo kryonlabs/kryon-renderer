@@ -38,6 +38,10 @@ struct Args {
     /// Enable debug logging
     #[arg(short, long)]
     debug: bool,
+    
+    /// Enable standalone rendering mode (auto-wrap non-App elements)
+    #[arg(long)]
+    standalone: bool,
 }
 
 fn main() -> Result<()> {
@@ -74,6 +78,23 @@ fn main() -> Result<()> {
 
     let size = window.inner_size();
     let viewport_size = Vec2::new(size.width as f32, size.height as f32);
+    
+    // Pre-load KRB file to check if we need to override window properties
+    let krb_file = kryon_core::load_krb_file(&args.krb_file)?;
+    let should_override_window = if let Some(root_id) = krb_file.root_element_id {
+        if let Some(root_element) = krb_file.elements.get(&root_id) {
+            args.standalone || root_element.id == "auto_generated_app"
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    
+    if should_override_window {
+        info!("Standalone rendering mode: using command-line window properties");
+        // Window is already created with the correct size and title from CLI args
+    }
 
     // Create WGPU instance FIRST
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {

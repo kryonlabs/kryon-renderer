@@ -2,7 +2,6 @@
 use crate::{Element, ElementId, ElementType, PropertyValue, Result, KryonError, TextAlignment, Style, CursorType, InteractionState, EventType}; 
 use std::collections::HashMap;
 use glam::{Vec2, Vec4};
-use std::process::id;
 
 #[derive(Debug)]
 pub struct KRBFile {
@@ -66,10 +65,14 @@ impl KRBParser {
         // Apply style-based layout flags to elements
         self.apply_style_layout_flags(&mut elements, &styles)?;
         
-        // Find root element (App type)
-        let root_element_id = elements.iter()
-            .find(|(_, element)| element.element_type == ElementType::App)
-            .map(|(id, _)| *id);
+        // Find root element (App type) or create default App wrapper
+        let root_element_id = if let Some((id, _)) = elements.iter()
+            .find(|(_, element)| element.element_type == ElementType::App) {
+            Some(*id)
+        } else {
+            // No App element found, create a default App wrapper
+            Self::create_default_app_wrapper(&mut elements)
+        };
         
         Ok(KRBFile {
             header,
@@ -728,6 +731,72 @@ impl KRBParser {
         Ok(scripts)
     }
     
+    fn create_default_app_wrapper(elements: &mut HashMap<ElementId, Element>) -> Option<ElementId> {
+        if elements.is_empty() {
+            return None;
+        }
+        
+        // Find the next available element ID
+        let app_id = elements.keys().max().unwrap_or(&0) + 1;
+        
+        // Create a default App element with sensible defaults
+        let mut app_element = Element {
+            id: "auto_generated_app".to_string(),
+            element_type: ElementType::App,
+            parent: None,
+            children: Vec::new(),
+            style_id: 0,
+            position: Vec2::ZERO,
+            size: Vec2::new(800.0, 600.0), // Default window size
+            layout_flags: 0,
+            background_color: Vec4::new(0.1, 0.1, 0.1, 1.0), // Dark gray background
+            text_color: Vec4::new(1.0, 1.0, 1.0, 1.0), // White text
+            border_color: Vec4::new(0.0, 0.0, 0.0, 0.0), // Transparent border
+            border_width: 0.0,
+            border_radius: 0.0,
+            opacity: 1.0,
+            visible: true,
+            text: "Auto-generated App".to_string(),
+            font_size: 14.0,
+            font_weight: crate::elements::FontWeight::Normal,
+            text_alignment: crate::elements::TextAlignment::Start,
+            cursor: crate::elements::CursorType::Default,
+            disabled: false,
+            current_state: crate::elements::InteractionState::Normal,
+            custom_properties: HashMap::new(),
+            state_properties: HashMap::new(),
+            event_handlers: HashMap::new(),
+            component_name: None,
+            is_component_instance: false,
+        };
+        
+        // Collect all current root elements (elements with no parent)
+        let mut root_elements = Vec::new();
+        for (id, element) in elements.iter() {
+            if element.parent.is_none() {
+                root_elements.push(*id);
+            }
+        }
+        
+        // Make all current root elements children of the new App
+        app_element.children = root_elements.clone();
+        
+        // Update parent references for all root elements
+        for root_id in &root_elements {
+            if let Some(element) = elements.get_mut(root_id) {
+                element.parent = Some(app_id);
+            }
+        }
+        
+        // Insert the App element
+        elements.insert(app_id, app_element);
+        
+        eprintln!("[AUTO_APP] Created default App wrapper with ID {} containing {} child elements", 
+                 app_id, root_elements.len());
+        
+        Some(app_id)
+    }
+    
     fn apply_style_layout_flags(&self, elements: &mut HashMap<ElementId, Element>, styles: &HashMap<u8, Style>) -> Result<()> {
         for (_element_id, element) in elements.iter_mut() {
             if element.style_id > 0 {
@@ -908,6 +977,13 @@ pub fn load_krb_file(path: &str) -> Result<KRBFile> {
     }
     
     eprintln!("Root element ID: {:?}", krb_file.root_element_id);
+    if let Some(root_id) = krb_file.root_element_id {
+        if let Some(root_element) = krb_file.elements.get(&root_id) {
+            if root_element.id == "auto_generated_app" {
+                eprintln!("NOTE: Auto-generated App wrapper created for standalone rendering");
+            }
+        }
+    }
     eprintln!("=== END DEBUG ===");
     
     Ok(krb_file)

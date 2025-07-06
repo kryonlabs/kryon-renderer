@@ -14,10 +14,29 @@ pub struct ScriptSystem {
 
 impl ScriptSystem {
     pub fn new() -> Self {
+        let lua = Lua::new();
+        
+        // Setup custom print function that forwards to stdout
+        let _ = lua.globals().set("print", lua.create_function(|_, args: mlua::Variadic<mlua::Value>| {
+            let mut output = Vec::new();
+            for arg in args {
+                match arg {
+                    mlua::Value::String(s) => output.push(s.to_str().unwrap_or("").to_string()),
+                    mlua::Value::Number(n) => output.push(n.to_string()),
+                    mlua::Value::Integer(i) => output.push(i.to_string()),
+                    mlua::Value::Boolean(b) => output.push(b.to_string()),
+                    mlua::Value::Nil => output.push("nil".to_string()),
+                    _ => output.push(format!("{:?}", arg)),
+                }
+            }
+            println!("{}", output.join("\t"));
+            Ok(())
+        }).unwrap()).unwrap();
+        
         Self {
             scripts: Vec::new(),
             state: HashMap::new(),
-            lua: Lua::new(),
+            lua,
         }
     }
     

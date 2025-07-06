@@ -30,6 +30,9 @@ enum RenderCommand {
         /// Enable debug logging
         #[arg(short, long)]
         debug: bool,
+        /// Enable standalone rendering mode (auto-wrap non-App elements)
+        #[arg(long)]
+        standalone: bool,
     },
     /// Render with Ratatui backend (terminal UI)
     Ratatui {
@@ -38,6 +41,9 @@ enum RenderCommand {
         /// Enable debug logging
         #[arg(short, long)]
         debug: bool,
+        /// Enable standalone rendering mode (auto-wrap non-App elements)
+        #[arg(long)]
+        standalone: bool,
     },
     /// Render with Raylib backend (simple graphics)
     Raylib {
@@ -55,6 +61,9 @@ enum RenderCommand {
         /// Enable debug logging
         #[arg(short, long)]
         debug: bool,
+        /// Enable standalone rendering mode (auto-wrap non-App elements)
+        #[arg(long)]
+        standalone: bool,
     },
     /// Debug renderer (text hierarchy output)
     Debug {
@@ -82,7 +91,7 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     match args.command {
-        RenderCommand::Wgpu { krb_file, width, height, title, debug } => {
+        RenderCommand::Wgpu { krb_file, width, height, title, debug, standalone } => {
             validate_krb_file(&krb_file)?;
             
             let mut cmd_args = Vec::<String>::new();
@@ -101,25 +110,31 @@ fn main() -> Result<()> {
             }
             if debug {
                 cmd_args.push("--debug".to_string());
+            }
+            if standalone {
+                cmd_args.push("--standalone".to_string());
             }
             cmd_args.push(krb_file);
             
             run_backend_binary("kryon-renderer-wgpu", &cmd_args)
         }
         
-        RenderCommand::Ratatui { krb_file, debug } => {
+        RenderCommand::Ratatui { krb_file, debug, standalone } => {
             validate_krb_file(&krb_file)?;
             
             let mut cmd_args = Vec::<String>::new();
             if debug {
                 cmd_args.push("--debug".to_string());
             }
+            if standalone {
+                cmd_args.push("--standalone".to_string());
+            }
             cmd_args.push(krb_file);
             
             run_backend_binary("kryon-renderer-ratatui", &cmd_args)
         }
         
-        RenderCommand::Raylib { krb_file, width, height, title, debug } => {
+        RenderCommand::Raylib { krb_file, width, height, title, debug, standalone } => {
             validate_krb_file(&krb_file)?;
             
             let mut cmd_args = Vec::<String>::new();
@@ -138,6 +153,9 @@ fn main() -> Result<()> {
             }
             if debug {
                 cmd_args.push("--debug".to_string());
+            }
+            if standalone {
+                cmd_args.push("--standalone".to_string());
             }
             cmd_args.push(krb_file);
             
