@@ -285,26 +285,40 @@ fn layout_flex_children_with_scale(
                 let text_height = child.font_size.max(16.0);
                 Vec2::new(text_width, text_height)
             } else if is_button_element {
-                // For buttons with grow layout, use minimal intrinsic size so they can expand
-                let child_layout = LayoutFlags::from_bits(child.layout_flags);
-                let button_width = if child_layout.grow {
-                    // Minimal width for buttons that need to grow to fill space
-                    if !child.text.is_empty() {
-                        // Just enough for text without padding
-                        (child.text.len() as f32 * 8.0).min(120.0)
-                    } else {
-                        40.0 // Minimal width for empty button
-                    }
+                // For buttons, first check if explicit size is set from styles
+                if child.size.x > 0.0 && child.size.y > 0.0 {
+                    // Use explicit size from styles
+                    child.size
                 } else {
-                    // Fixed-size buttons: text + padding
-                    if !child.text.is_empty() {
-                        (child.text.len() as f32 * 8.0) + 32.0
+                    // Fall back to text-based sizing for buttons without explicit sizes
+                    let child_layout = LayoutFlags::from_bits(child.layout_flags);
+                    let button_width = if child.size.x > 0.0 {
+                        // Use explicit width from styles
+                        child.size.x
+                    } else if child_layout.grow {
+                        // Minimal width for buttons that need to grow to fill space
+                        if !child.text.is_empty() {
+                            // Just enough for text without padding
+                            (child.text.len() as f32 * 8.0).min(120.0)
+                        } else {
+                            40.0 // Minimal width for empty button
+                        }
                     } else {
-                        80.0 // Default width for button with no text
-                    }
-                };
-                let button_height = child.size.y.max(32.0); // Use explicit height or default
-                Vec2::new(button_width, button_height)
+                        // Fixed-size buttons: text + padding
+                        if !child.text.is_empty() {
+                            (child.text.len() as f32 * 8.0) + 32.0
+                        } else {
+                            80.0 // Default width for button with no text
+                        }
+                    };
+                    let button_height = if child.size.y > 0.0 {
+                        // Use explicit height from styles
+                        child.size.y
+                    } else {
+                        32.0 // Default height for buttons without explicit height
+                    };
+                    Vec2::new(button_width, button_height)
+                }
             } else {
                 // For other elements (containers, etc.)
                 let is_container = child.element_type == kryon_core::ElementType::Container;
