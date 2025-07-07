@@ -8,3 +8,6 @@ edition = "2021"
 kryon-core = { path = "../kryon-core" }
 glam = { workspace = true }
 tracing = { workspace = true }
+taffy = "0.5"
+
+# Taffy is now the core layout system - no features needed

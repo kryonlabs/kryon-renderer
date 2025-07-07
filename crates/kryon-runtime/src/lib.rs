@@ -4,7 +4,7 @@ use kryon_core::{
     KRBFile, Element, ElementId, InteractionState, EventType, load_krb_file,
     StyleComputer,
 };
-use kryon_layout::{LayoutEngine, FlexboxLayoutEngine, LayoutResult};
+use kryon_layout::{LayoutEngine, TaffyLayoutEngine, LayoutResult};
 use kryon_render::{ElementRenderer, CommandRenderer, InputEvent, MouseButton, KeyCode};
 use glam::Vec2;
 use std::collections::HashMap;
@@ -25,7 +25,7 @@ pub struct KryonApp<R: CommandRenderer> {
     
     // Systems
     style_computer: StyleComputer, 
-    layout_engine: FlexboxLayoutEngine,
+    layout_engine: Box<dyn LayoutEngine>,
     renderer: ElementRenderer<R>,
     event_system: EventSystem,
     script_system: ScriptSystem,
@@ -43,6 +43,10 @@ pub struct KryonApp<R: CommandRenderer> {
 
 impl<R: CommandRenderer> KryonApp<R> {
     pub fn new(krb_path: &str, renderer: R) -> anyhow::Result<Self> {
+        Self::new_with_layout_engine(krb_path, renderer, None)
+    }
+    
+    pub fn new_with_layout_engine(krb_path: &str, renderer: R, layout_engine: Option<Box<dyn LayoutEngine>>) -> anyhow::Result<Self> {
         let krb_file = load_krb_file(krb_path)?;
         let mut elements = krb_file.elements.clone();
         
@@ -52,7 +56,10 @@ impl<R: CommandRenderer> KryonApp<R> {
         Self::link_element_hierarchy(&mut elements, &krb_file)?;
         
         
-        let layout_engine = FlexboxLayoutEngine::new();
+        // Use TaffyLayoutEngine as the core layout system
+        let layout_engine: Box<dyn LayoutEngine> = layout_engine.unwrap_or_else(|| {
+            Box::new(TaffyLayoutEngine::new())
+        });
         let renderer = ElementRenderer::new(renderer, style_computer.clone());
         let viewport_size = renderer.viewport_size();
         
@@ -78,14 +85,14 @@ impl<R: CommandRenderer> KryonApp<R> {
             frame_count: 0,
         };
         
-        // Initialize scripts
-        app.script_system.load_scripts(&app.krb_file.scripts)?;
-        
-        // Setup bridge functions for script-element interaction
+        // Setup bridge functions for script-element interaction BEFORE loading scripts
         app.script_system.setup_bridge_functions(&app.elements, &app.krb_file)?;
         
         // Register DOM functions for element traversal and manipulation
         app.script_system.register_dom_functions(&app.elements, &app.krb_file)?;
+        
+        // Initialize scripts (now that DOM API is available)
+        app.script_system.load_scripts(&app.krb_file.scripts)?;
         
         // Force initial layout computation
         app.update_layout()?;
@@ -191,6 +198,19 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
             root_id,
             self.viewport_size,
         );
+        
+        // Apply computed layout results back to element positions and sizes
+        for (&element_id, computed_position) in &self.layout_result.computed_positions {
+            if let Some(element) = self.elements.get_mut(&element_id) {
+                element.position = *computed_position;
+            }
+        }
+        
+        for (&element_id, computed_size) in &self.layout_result.computed_sizes {
+            if let Some(element) = self.elements.get_mut(&element_id) {
+                element.size = *computed_size;
+            }
+        }
     }
     Ok(())
 }

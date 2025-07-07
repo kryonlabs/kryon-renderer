@@ -44,6 +44,7 @@ members = [
 [dependencies]
 # Core crates
 kryon-core = { path = "crates/kryon-core" }
+kryon-layout = { path = "crates/kryon-layout" }
 kryon-runtime = { path = "crates/kryon-runtime" }
 kryon-render = { path = "crates/kryon-render" }
 

@@ -7,9 +7,11 @@ use tracing::debug;
 
 pub mod flexbox;
 pub mod constraints;
+pub mod taffy_engine;
 
 pub use flexbox::*;
 pub use constraints::*;
+pub use taffy_engine::TaffyLayoutEngine;
 
 #[derive(Debug, Clone)]
 pub struct LayoutResult {

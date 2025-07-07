@@ -167,6 +167,179 @@ impl KRBParser {
                         for _ in 0..size { self.read_u8(); }
                         continue;
                     }
+                    // Modern Taffy layout properties (0x40-0x4F range)
+                    0x40 => { // Display
+                        if size == 1 {
+                            let string_index = self.read_u8() as usize;
+                            if string_index < strings.len() {
+                                PropertyValue::String(strings[string_index].clone())
+                            } else {
+                                eprintln!("[STYLE]     Display: invalid string index {}", string_index);
+                                continue;
+                            }
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x41 => { // FlexDirection
+                        if size == 1 {
+                            let string_index = self.read_u8() as usize;
+                            if string_index < strings.len() {
+                                PropertyValue::String(strings[string_index].clone())
+                            } else {
+                                eprintln!("[STYLE]     FlexDirection: invalid string index {}", string_index);
+                                continue;
+                            }
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x42 => { // FlexWrap
+                        if size == 1 {
+                            let string_index = self.read_u8() as usize;
+                            if string_index < strings.len() {
+                                PropertyValue::String(strings[string_index].clone())
+                            } else {
+                                eprintln!("[STYLE]     FlexWrap: invalid string index {}", string_index);
+                                continue;
+                            }
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x43 => { // FlexGrow
+                        if size == 4 {
+                            let flex_grow_bytes = [self.read_u8(), self.read_u8(), self.read_u8(), self.read_u8()];
+                            PropertyValue::Float(f32::from_le_bytes(flex_grow_bytes))
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x44 => { // FlexShrink
+                        if size == 4 {
+                            let flex_shrink_bytes = [self.read_u8(), self.read_u8(), self.read_u8(), self.read_u8()];
+                            PropertyValue::Float(f32::from_le_bytes(flex_shrink_bytes))
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x45 => { // FlexBasis
+                        if size == 1 {
+                            let string_index = self.read_u8() as usize;
+                            if string_index < strings.len() {
+                                PropertyValue::String(strings[string_index].clone())
+                            } else {
+                                eprintln!("[STYLE]     FlexBasis: invalid string index {}", string_index);
+                                continue;
+                            }
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x46 => { // AlignItems
+                        if size == 1 {
+                            let string_index = self.read_u8() as usize;
+                            if string_index < strings.len() {
+                                PropertyValue::String(strings[string_index].clone())
+                            } else {
+                                eprintln!("[STYLE]     AlignItems: invalid string index {}", string_index);
+                                continue;
+                            }
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x47 => { // AlignSelf
+                        if size == 1 {
+                            let string_index = self.read_u8() as usize;
+                            if string_index < strings.len() {
+                                PropertyValue::String(strings[string_index].clone())
+                            } else {
+                                eprintln!("[STYLE]     AlignSelf: invalid string index {}", string_index);
+                                continue;
+                            }
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x48 => { // AlignContent
+                        if size == 1 {
+                            let string_index = self.read_u8() as usize;
+                            if string_index < strings.len() {
+                                PropertyValue::String(strings[string_index].clone())
+                            } else {
+                                eprintln!("[STYLE]     AlignContent: invalid string index {}", string_index);
+                                continue;
+                            }
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x49 => { // JustifyContent
+                        if size == 1 {
+                            let string_index = self.read_u8() as usize;
+                            if string_index < strings.len() {
+                                PropertyValue::String(strings[string_index].clone())
+                            } else {
+                                eprintln!("[STYLE]     JustifyContent: invalid string index {}", string_index);
+                                continue;
+                            }
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x4A => { // JustifyItems
+                        if size == 1 {
+                            let string_index = self.read_u8() as usize;
+                            if string_index < strings.len() {
+                                PropertyValue::String(strings[string_index].clone())
+                            } else {
+                                eprintln!("[STYLE]     JustifyItems: invalid string index {}", string_index);
+                                continue;
+                            }
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x4B => { // JustifySelf
+                        if size == 1 {
+                            let string_index = self.read_u8() as usize;
+                            if string_index < strings.len() {
+                                PropertyValue::String(strings[string_index].clone())
+                            } else {
+                                eprintln!("[STYLE]     JustifySelf: invalid string index {}", string_index);
+                                continue;
+                            }
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x50 => { // Position
+                        if size == 1 {
+                            let string_index = self.read_u8() as usize;
+                            if string_index < strings.len() {
+                                PropertyValue::String(strings[string_index].clone())
+                            } else {
+                                eprintln!("[STYLE]     Position: invalid string index {}", string_index);
+                                continue;
+                            }
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
                     // Add other property types here
                     _ => {
                         // For unknown properties, read the raw bytes and display them
@@ -613,6 +786,107 @@ impl KRBParser {
                 element.size.y = height;
                 eprintln!("[PROP] Height: {}", height);
             }
+            // Modern Taffy layout properties (0x40-0x4F range)
+            0x40 => { // Display
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    let display_value = strings[string_index].clone();
+                    element.custom_properties.insert("display".to_string(), PropertyValue::String(display_value.clone()));
+                    eprintln!("[PROP] Display: '{}'", display_value);
+                }
+            }
+            0x41 => { // FlexDirection
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    let flex_direction = strings[string_index].clone();
+                    element.custom_properties.insert("flex_direction".to_string(), PropertyValue::String(flex_direction.clone()));
+                    eprintln!("[PROP] FlexDirection: '{}'", flex_direction);
+                }
+            }
+            0x42 => { // FlexWrap
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    let flex_wrap = strings[string_index].clone();
+                    element.custom_properties.insert("flex_wrap".to_string(), PropertyValue::String(flex_wrap.clone()));
+                    eprintln!("[PROP] FlexWrap: '{}'", flex_wrap);
+                }
+            }
+            0x43 => { // FlexGrow
+                let flex_grow_bytes = [self.read_u8(), self.read_u8(), self.read_u8(), self.read_u8()];
+                let flex_grow = f32::from_le_bytes(flex_grow_bytes);
+                element.custom_properties.insert("flex_grow".to_string(), PropertyValue::Float(flex_grow));
+                eprintln!("[PROP] FlexGrow: {}", flex_grow);
+            }
+            0x44 => { // FlexShrink
+                let flex_shrink_bytes = [self.read_u8(), self.read_u8(), self.read_u8(), self.read_u8()];
+                let flex_shrink = f32::from_le_bytes(flex_shrink_bytes);
+                element.custom_properties.insert("flex_shrink".to_string(), PropertyValue::Float(flex_shrink));
+                eprintln!("[PROP] FlexShrink: {}", flex_shrink);
+            }
+            0x45 => { // FlexBasis
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    let flex_basis = strings[string_index].clone();
+                    element.custom_properties.insert("flex_basis".to_string(), PropertyValue::String(flex_basis.clone()));
+                    eprintln!("[PROP] FlexBasis: '{}'", flex_basis);
+                }
+            }
+            0x46 => { // AlignItems
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    let align_items = strings[string_index].clone();
+                    element.custom_properties.insert("align_items".to_string(), PropertyValue::String(align_items.clone()));
+                    eprintln!("[PROP] AlignItems: '{}'", align_items);
+                }
+            }
+            0x47 => { // AlignSelf
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    let align_self = strings[string_index].clone();
+                    element.custom_properties.insert("align_self".to_string(), PropertyValue::String(align_self.clone()));
+                    eprintln!("[PROP] AlignSelf: '{}'", align_self);
+                }
+            }
+            0x48 => { // AlignContent
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    let align_content = strings[string_index].clone();
+                    element.custom_properties.insert("align_content".to_string(), PropertyValue::String(align_content.clone()));
+                    eprintln!("[PROP] AlignContent: '{}'", align_content);
+                }
+            }
+            0x49 => { // JustifyContent
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    let justify_content = strings[string_index].clone();
+                    element.custom_properties.insert("justify_content".to_string(), PropertyValue::String(justify_content.clone()));
+                    eprintln!("[PROP] JustifyContent: '{}'", justify_content);
+                }
+            }
+            0x4A => { // JustifyItems
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    let justify_items = strings[string_index].clone();
+                    element.custom_properties.insert("justify_items".to_string(), PropertyValue::String(justify_items.clone()));
+                    eprintln!("[PROP] JustifyItems: '{}'", justify_items);
+                }
+            }
+            0x4B => { // JustifySelf
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    let justify_self = strings[string_index].clone();
+                    element.custom_properties.insert("justify_self".to_string(), PropertyValue::String(justify_self.clone()));
+                    eprintln!("[PROP] JustifySelf: '{}'", justify_self);
+                }
+            }
+            0x50 => { // Position
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    let position = strings[string_index].clone();
+                    element.custom_properties.insert("position".to_string(), PropertyValue::String(position.clone()));
+                    eprintln!("[PROP] Position: '{}'", position);
+                }
+            }
             _ => {
                 eprintln!("[PROP] Unknown property 0x{:02X}, skipping {} bytes...", property_id, size);
                 // Skip unknown property using size field
@@ -856,6 +1130,31 @@ impl KRBParser {
                             }
                         } else {
                             eprintln!("[STYLE_LAYOUT] No text_alignment property (0x0B) found in style '{}'", style_block.name);
+                        }
+                    }
+                    
+                    // Apply Taffy layout properties to custom_properties
+                    let taffy_properties = [
+                        (0x40, "display"),
+                        (0x41, "flex_direction"),
+                        (0x42, "flex_wrap"),
+                        (0x43, "flex_grow"),
+                        (0x44, "flex_shrink"),
+                        (0x45, "flex_basis"),
+                        (0x46, "align_items"),
+                        (0x47, "align_self"),
+                        (0x48, "align_content"),
+                        (0x49, "justify_content"),
+                        (0x4A, "justify_items"),
+                        (0x4B, "justify_self"),
+                        (0x50, "position"),
+                    ];
+                    
+                    for (prop_id, prop_name) in taffy_properties {
+                        if let Some(taffy_prop) = style_block.properties.get(&prop_id) {
+                            element.custom_properties.insert(prop_name.to_string(), taffy_prop.clone());
+                            eprintln!("[STYLE_LAYOUT] Applied Taffy property {} ({}) from style '{}' to element", 
+                                prop_name, prop_id, style_block.name);
                         }
                     }
                     
