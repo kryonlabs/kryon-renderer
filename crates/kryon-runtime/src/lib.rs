@@ -96,6 +96,7 @@ impl<R: CommandRenderer> KryonApp<R> {
         
         // Force initial layout computation
         app.update_layout()?;
+        app.needs_layout = false; // Reset after initial layout
         
 
 
@@ -208,6 +209,9 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
         
         for (&element_id, computed_size) in &self.layout_result.computed_sizes {
             if let Some(element) = self.elements.get_mut(&element_id) {
+                // Debug: Log size application
+                eprintln!("[LAYOUT_APPLY] Element {}: applying computed size {:?} (was {:?})", 
+                    element_id, computed_size, element.size);
                 element.size = *computed_size;
             }
         }

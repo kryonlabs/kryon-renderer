@@ -42,8 +42,8 @@ impl TaffyLayoutEngine {
         // Clear previous state
         self.clear();
 
-        // Build Taffy tree from KRB elements
-        let root_node = self.build_taffy_tree(elements, root_element_id)?;
+        // Build Taffy tree from KRB elements in deterministic order
+        let root_node = self.build_taffy_tree_deterministic(elements, root_element_id)?;
         
         // Compute layout with Taffy
         let available_space = Size {
@@ -55,6 +55,12 @@ impl TaffyLayoutEngine {
 
         // Cache layout results
         self.cache_layouts(elements)?;
+        
+        // Debug: Print computed layouts
+        for (&element_id, layout) in &self.layout_cache {
+            eprintln!("[TAFFY_COMPUTED] Element {}: pos=({}, {}), size=({}, {})", 
+                element_id, layout.location.x, layout.location.y, layout.size.width, layout.size.height);
+        }
 
         debug!("Taffy layout computation completed for {} elements", elements.len());
         Ok(())
@@ -65,15 +71,63 @@ impl TaffyLayoutEngine {
         self.layout_cache.get(&element_id)
     }
 
-    /// Clear all cached data
+    /// Clear all cached data and create fresh Taffy instance
     fn clear(&mut self) {
-        self.taffy.clear();
+        // Create completely fresh Taffy instance to avoid node ID reuse bugs
+        self.taffy = TaffyTree::new();
         self.element_to_node.clear();
         self.node_to_element.clear();
         self.layout_cache.clear();
     }
 
-    /// Build Taffy tree recursively from KRB elements
+    /// Build Taffy tree in deterministic order to avoid node ID confusion
+    fn build_taffy_tree_deterministic(
+        &mut self,
+        elements: &HashMap<ElementId, Element>,
+        root_element_id: ElementId,
+    ) -> Result<taffy::NodeId, taffy::TaffyError> {
+        // First pass: Create all nodes in sorted order by element ID
+        let mut sorted_elements: Vec<_> = elements.iter().collect();
+        sorted_elements.sort_by_key(|(id, _)| *id);
+        
+        for (&element_id, element) in sorted_elements {
+            let style = self.krb_to_taffy_style(element);
+            let node = self.taffy.new_leaf(style)?;
+            
+            self.element_to_node.insert(element_id, node);
+            self.node_to_element.insert(node, element_id);
+            
+            eprintln!("[TAFFY_NODE] Element {} -> Taffy Node {:?}", element_id, node);
+        }
+        
+        // Second pass: Set up parent-child relationships
+        for (&element_id, element) in elements {
+            if let Some(&parent_node) = self.element_to_node.get(&element_id) {
+                let mut child_nodes = Vec::new();
+                for &child_id in &element.children {
+                    if let Some(&child_node) = self.element_to_node.get(&child_id) {
+                        child_nodes.push(child_node);
+                    }
+                }
+                
+                if !child_nodes.is_empty() {
+                    eprintln!("[TAFFY_TREE] Element {} (Node {:?}) has children: {:?}", 
+                        element_id, parent_node, child_nodes);
+                    self.taffy.set_children(parent_node, &child_nodes)?;
+                } else {
+                    eprintln!("[TAFFY_TREE] Element {} (Node {:?}) is a leaf node", 
+                        element_id, parent_node);
+                }
+            }
+        }
+        
+        // Return root node
+        self.element_to_node.get(&root_element_id)
+            .copied()
+            .ok_or_else(|| taffy::TaffyError::InvalidChildNode(taffy::NodeId::new(0)))
+    }
+
+    /// Build Taffy tree recursively from KRB elements (OLD METHOD)
     fn build_taffy_tree(
         &mut self,
         elements: &HashMap<ElementId, Element>,
@@ -84,6 +138,8 @@ impl TaffyLayoutEngine {
 
         // Convert KRB properties to Taffy style
         let style = self.krb_to_taffy_style(element);
+        
+        // eprintln!("[TAFFY_BUILD] Element {}: style={:?}", element_id, style);
 
         // Create Taffy node
         let node = self.taffy.new_leaf(style)?;
@@ -91,6 +147,8 @@ impl TaffyLayoutEngine {
         // Store bidirectional mapping
         self.element_to_node.insert(element_id, node);
         self.node_to_element.insert(node, element_id);
+        
+        eprintln!("[TAFFY_NODE] Element {} -> Taffy Node {:?}", element_id, node);
 
         // Process children recursively
         let mut child_nodes = Vec::new();
@@ -121,6 +179,10 @@ impl TaffyLayoutEngine {
         // Apply size constraints from element
         if element.size.x > 0.0 {
             style.size.width = Dimension::Length(element.size.x);
+        } else if element.element_type == kryon_core::ElementType::Container {
+            // Containers without explicit width should fill available space
+            style.size.width = Dimension::Percent(1.0);
+            // eprintln!("[TAFFY_CONTAINER] Set container width to 100%");
         }
         if element.size.y > 0.0 {
             style.size.height = Dimension::Length(element.size.y);
@@ -158,7 +220,8 @@ impl TaffyLayoutEngine {
             // Set default display based on element type
             style.display = match element.element_type {
                 kryon_core::ElementType::Container => Display::Flex,
-                _ => Display::Flex,
+                kryon_core::ElementType::Button => Display::Block, // Buttons should be block-level for proper sizing
+                _ => Display::Block,
             };
         }
 
@@ -223,14 +286,25 @@ impl TaffyLayoutEngine {
 
         // Flex grow/shrink/basis
         if let Some(value) = element.custom_properties.get("flex_grow") {
-            if let Some(grow) = value.as_float() {
-                style.flex_grow = grow;
+            let grow_value = match value {
+                PropertyValue::String(s) => s.parse::<f32>().unwrap_or(0.0),
+                PropertyValue::Float(f) => *f,
+                PropertyValue::Int(i) => *i as f32,
+                _ => 0.0,
+            };
+            if grow_value > 0.0 {
+                style.flex_grow = grow_value;
+                // eprintln!("[TAFFY_FLEX] Applied flex_grow: {} to element", grow_value);
             }
         }
         if let Some(value) = element.custom_properties.get("flex_shrink") {
-            if let Some(shrink) = value.as_float() {
-                style.flex_shrink = shrink;
-            }
+            let shrink_value = match value {
+                PropertyValue::String(s) => s.parse::<f32>().unwrap_or(1.0),
+                PropertyValue::Float(f) => *f,
+                PropertyValue::Int(i) => *i as f32,
+                _ => 1.0,
+            };
+            style.flex_shrink = shrink_value;
         }
 
         // Position properties
@@ -295,20 +369,33 @@ impl TaffyLayoutEngine {
             style.flex_grow = 1.0;
         }
         
-        // Handle button-specific sizing for flex containers
-        if style.display == Display::Flex && style.flex_grow == 1.0 {
+        // Handle button-specific sizing for flex containers  
+        if style.flex_grow > 0.0 {
             // Elements with grow should have at least some minimum size
-            if style.size.width == Dimension::Auto {
-                style.min_size.width = Dimension::Length(50.0); // Minimum button width
-            }
+            style.min_size.width = Dimension::Length(80.0); // Minimum button width for flex_grow elements
+            style.min_size.height = Dimension::Length(40.0); // Minimum button height
+            // eprintln!("[TAFFY_BUTTON] Applied minimum size to flex_grow element: min_width=80, min_height=40");
         }
     }
 
     /// Cache computed layouts for all elements
     fn cache_layouts(&mut self, elements: &HashMap<ElementId, Element>) -> Result<(), taffy::TaffyError> {
-        for (&element_id, _element) in elements {
+        for (&element_id, element) in elements {
             if let Some(&node) = self.element_to_node.get(&element_id) {
                 let layout = self.taffy.layout(node)?;
+                eprintln!("[TAFFY_CACHE] Element {} '{}' (Node {:?}): size=({}, {}) type={:?}", 
+                    element_id, element.id, node, layout.size.width, layout.size.height, element.element_type);
+                
+                // Extra debugging: Also log the reverse mapping
+                if let Some(&mapped_element_id) = self.node_to_element.get(&node) {
+                    if mapped_element_id != element_id {
+                        eprintln!("[TAFFY_CACHE_ERROR] Node {:?} maps back to element {} instead of {}!", 
+                            node, mapped_element_id, element_id);
+                    }
+                } else {
+                    eprintln!("[TAFFY_CACHE_ERROR] Node {:?} has no reverse mapping!", node);
+                }
+                
                 self.layout_cache.insert(element_id, *layout);
             }
         }
