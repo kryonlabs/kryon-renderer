@@ -171,7 +171,7 @@ impl TaffyLayoutEngine {
         let mut style = Style::default();
 
         // Apply layout flags (legacy system)
-        self.apply_legacy_layout_flags(&mut style, element.layout_flags);
+        self.apply_legacy_layout_flags(&mut style, element.layout_flags, element);
 
         // Apply custom properties for modern CSS features
         self.apply_custom_properties(&mut style, element);
@@ -224,6 +224,28 @@ impl TaffyLayoutEngine {
                 _ => Display::Block,
             };
         }
+        
+        // Override display for specific element types (must be at the end)
+        match element.element_type {
+            kryon_core::ElementType::Button => {
+                eprintln!("[TAFFY_BUTTON_OVERRIDE] Setting button '{}' to Display::Block", element.id);
+                style.display = Display::Block;
+                // Reset flex properties that might have been set by layout_flags
+                style.align_items = None;
+                style.justify_content = None;
+            }
+            kryon_core::ElementType::App | kryon_core::ElementType::Container => {
+                // Ensure App and Container elements stay as flex containers if they have flex properties
+                if style.align_items.is_some() || style.justify_content.is_some() || element.layout_flags != 0 {
+                    eprintln!("[TAFFY_CONTAINER_OVERRIDE] Ensuring '{}' stays Display::Flex", element.id);
+                    style.display = Display::Flex;
+                }
+            }
+            _ => {}
+        }
+        
+        eprintln!("[TAFFY_STYLE] Element '{}': layout_flags=0x{:02X}, display={:?}, flex_direction={:?}, align_items={:?}, justify_content={:?}", 
+            element.id, element.layout_flags, style.display, style.flex_direction, style.align_items, style.justify_content);
 
         style
     }
@@ -328,7 +350,7 @@ impl TaffyLayoutEngine {
     }
 
     /// Apply legacy layout flags for backward compatibility
-    fn apply_legacy_layout_flags(&self, style: &mut Style, layout_flags: u8) {
+    fn apply_legacy_layout_flags(&self, style: &mut Style, layout_flags: u8, element: &Element) {
         // Layout direction constants (matching kryon-compiler types.rs)
         const LAYOUT_DIRECTION_MASK: u8 = 0x03;
         const LAYOUT_DIRECTION_ROW: u8 = 0;
@@ -337,31 +359,49 @@ impl TaffyLayoutEngine {
 
         let direction = layout_flags & LAYOUT_DIRECTION_MASK;
         
-        match direction {
-            LAYOUT_DIRECTION_ROW => {
-                style.display = Display::Flex;
-                style.flex_direction = FlexDirection::Row;
-            }
-            LAYOUT_DIRECTION_COLUMN => {
-                style.display = Display::Flex;
-                style.flex_direction = FlexDirection::Column;
-            }
-            LAYOUT_DIRECTION_ABSOLUTE => {
-                style.position = Position::Absolute;
-                style.display = Display::Block; // Absolute elements need block display
-            }
-            _ => {
-                style.display = Display::Flex;
-                style.flex_direction = FlexDirection::Row;
+        // Only apply flex layout to container elements or elements with explicit layout flags
+        let should_apply_flex = layout_flags != 0 || element.element_type == kryon_core::ElementType::Container || element.element_type == kryon_core::ElementType::App;
+        
+        if should_apply_flex {
+            match direction {
+                LAYOUT_DIRECTION_ROW => {
+                    style.display = Display::Flex;
+                    style.flex_direction = FlexDirection::Row;
+                }
+                LAYOUT_DIRECTION_COLUMN => {
+                    style.display = Display::Flex;
+                    style.flex_direction = FlexDirection::Column;
+                }
+                LAYOUT_DIRECTION_ABSOLUTE => {
+                    style.position = Position::Absolute;
+                    style.display = Display::Block; // Absolute elements need block display
+                }
+                _ => {
+                    // Only set flex for containers when layout_flags is 0
+                    if element.element_type == kryon_core::ElementType::Container || element.element_type == kryon_core::ElementType::App {
+                        style.display = Display::Flex;
+                        style.flex_direction = FlexDirection::Row;
+                    }
+                }
             }
         }
 
-        // Apply alignment flags
+        // Apply alignment flags - for centering, set both align_items and justify_content
         let alignment = (layout_flags >> 2) & 0x03;
         match alignment {
-            1 => style.align_items = Some(AlignItems::Center),
-            2 => style.align_items = Some(AlignItems::FlexEnd),
-            _ => style.align_items = Some(AlignItems::FlexStart),
+            1 => {
+                style.align_items = Some(AlignItems::Center);
+                style.justify_content = Some(JustifyContent::Center);
+                eprintln!("[TAFFY_LEGACY] Applied CENTER alignment: layout_flags=0x{:02X}, alignment_bits={}", layout_flags, alignment);
+            },
+            2 => {
+                style.align_items = Some(AlignItems::FlexEnd);
+                style.justify_content = Some(JustifyContent::FlexEnd);
+            },
+            _ => {
+                style.align_items = Some(AlignItems::FlexStart);
+                style.justify_content = Some(JustifyContent::FlexStart);
+            },
         }
 
         // Apply grow flag - this is crucial for TabBar buttons!

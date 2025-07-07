@@ -537,6 +537,9 @@ impl KRBParser {
         // Initialize children vector based on child_count
         element.children = Vec::with_capacity(child_count as usize);
         
+        // Convert modern CSS properties to layout_flags if present
+        self.convert_css_properties_to_layout_flags(&mut element);
+        
         Ok(element)
     }
     
@@ -927,6 +930,87 @@ impl KRBParser {
         
         element.custom_properties.insert(key, value);
         Ok(())
+    }
+    
+    /// Convert modern CSS properties to legacy layout_flags
+    fn convert_css_properties_to_layout_flags(&self, element: &mut Element) {
+        let mut layout_flags = element.layout_flags; // Start with existing flags
+        
+        // Extract CSS properties
+        let display = element.custom_properties.get("display")
+            .and_then(|v| if let PropertyValue::String(s) = v { Some(s) } else { None });
+        let flex_direction = element.custom_properties.get("flex_direction")
+            .and_then(|v| if let PropertyValue::String(s) = v { Some(s) } else { None });
+        let align_items = element.custom_properties.get("align_items")
+            .and_then(|v| if let PropertyValue::String(s) = v { Some(s) } else { None });
+        let justify_content = element.custom_properties.get("justify_content")
+            .and_then(|v| if let PropertyValue::String(s) = v { Some(s) } else { None });
+        let flex_grow = element.custom_properties.get("flex_grow")
+            .and_then(|v| if let PropertyValue::Float(f) = v { Some(*f) } else { None });
+        
+        // Only process if we have flexbox display
+        if let Some(display_val) = display {
+            if display_val == "flex" {
+                // Set direction
+                if let Some(direction) = flex_direction {
+                    match direction.as_str() {
+                        "row" => {
+                            layout_flags = (layout_flags & !0x03) | 0x00; // LAYOUT_DIRECTION_ROW
+                        }
+                        "column" => {
+                            layout_flags = (layout_flags & !0x03) | 0x01; // LAYOUT_DIRECTION_COLUMN
+                        }
+                        _ => {}
+                    }
+                }
+                
+                // Set alignment based on justify_content and align_items
+                // For flexbox, justify_content controls main axis, align_items controls cross axis
+                // Our layout engine uses alignment for both cross axis and main axis centering
+                let mut should_center = false;
+                
+                if let Some(align) = align_items {
+                    match align.as_str() {
+                        "center" | "centre" => {
+                            should_center = true;
+                        }
+                        "flex-start" | "start" => {
+                            layout_flags = (layout_flags & !0x0C) | 0x00; // LAYOUT_ALIGNMENT_START  
+                        }
+                        "flex-end" | "end" => {
+                            layout_flags = (layout_flags & !0x0C) | 0x08; // LAYOUT_ALIGNMENT_END
+                        }
+                        _ => {}
+                    }
+                }
+                
+                // For justify_content=center, also enable centering
+                if let Some(justify) = justify_content {
+                    match justify.as_str() {
+                        "center" | "centre" => {
+                            should_center = true;
+                        }
+                        _ => {}
+                    }
+                }
+                
+                if should_center {
+                    layout_flags = (layout_flags & !0x0C) | 0x04; // LAYOUT_ALIGNMENT_CENTER
+                }
+                
+                // Set grow flag
+                if let Some(grow) = flex_grow {
+                    if grow > 0.0 {
+                        layout_flags |= 0x20; // LAYOUT_GROW_BIT
+                    }
+                }
+                
+                eprintln!("[CSS_CONVERT] Element '{}': display={}, flex_direction={:?}, align_items={:?}, justify_content={:?} -> layout_flags=0x{:02X}", 
+                    element.id, display_val, flex_direction, align_items, justify_content, layout_flags);
+                
+                element.layout_flags = layout_flags;
+            }
+        }
     }
     
     fn parse_resource_table(&mut self, header: &KRBHeader) -> Result<Vec<String>> {

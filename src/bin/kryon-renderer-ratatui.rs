@@ -8,7 +8,7 @@ use clap::Parser;
 
 // Terminal specific imports
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event as CrosstermEvent, KeyCode},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event as CrosstermEvent, KeyCode, MouseEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -74,7 +74,7 @@ fn run(args: &Args) -> Result<()> {
     let mut app =
         KryonApp::new(&args.krb_file, renderer).context("Failed to create Kryon application")?;
 
-    println!("Starting terminal render loop... (Press 'q' to quit)"); // This is ok, it's user-facing
+    println!("Starting terminal render loop... (Press 'q' to quit, click on buttons to interact)"); // This is ok, it's user-facing
 
     let mut last_frame_time = Instant::now();
     loop {
@@ -89,6 +89,20 @@ fn run(args: &Args) -> Result<()> {
                     };
                     if let Err(e) = app.handle_input(event) {
                         eprintln!("Failed to handle resize: {:?}", e);
+                    }
+                }
+                CrosstermEvent::Mouse(mouse_event) => {
+                    match mouse_event.kind {
+                        MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+                            let event = InputEvent::MousePress {
+                                position: glam::vec2(mouse_event.column as f32, mouse_event.row as f32),
+                                button: kryon_render::MouseButton::Left,
+                            };
+                            if let Err(e) = app.handle_input(event) {
+                                eprintln!("Failed to handle mouse click: {:?}", e);
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 _ => {}
