@@ -14,11 +14,19 @@ pub mod backends;
 pub mod event_system;
 pub mod script_system;
 pub mod template_engine;
+pub mod vm_trait;
+pub mod shared_data;
+pub mod lua_vm;
+pub mod vm_registry;
 
 pub use backends::*;
 pub use event_system::*;
 pub use script_system::*;
 pub use template_engine::*;
+pub use vm_trait::*;
+pub use shared_data::*;
+pub use lua_vm::*;
+pub use vm_registry::*;
 
 pub struct KryonApp<R: CommandRenderer> {
     // Core data
@@ -122,7 +130,7 @@ impl<R: CommandRenderer> KryonApp<R> {
     }
     
     fn link_element_hierarchy(
-        elements: &mut HashMap<ElementId, Element>,
+        _elements: &mut HashMap<ElementId, Element>,
         _krb_file: &KRBFile,
     ) -> anyhow::Result<()> {
         // TODO: Implement proper parent-child relationship parsing from KRB format

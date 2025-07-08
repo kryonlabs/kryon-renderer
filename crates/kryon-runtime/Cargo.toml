@@ -8,20 +8,48 @@ edition = "2021"
 kryon-core = { path = "../kryon-core" }
 kryon-layout = { path = "../kryon-layout" }
 kryon-render = { path = "../kryon-render" }
+
+# Renderer backends (optional)
 kryon-wgpu = { path = "../kryon-wgpu", optional = true }
 kryon-ratatui = { path = "../kryon-ratatui", optional = true }
 kryon-raylib = { path = "../kryon-raylib", optional = true }
+
+# VM backends (optional - to be created)
+# kryon-runtime-javascript = { path = "../kryon-runtime-javascript", optional = true }
+# kryon-runtime-python = { path = "../kryon-runtime-python", optional = true }  
+# kryon-runtime-wren = { path = "../kryon-runtime-wren", optional = true }
+
+# VM dependencies (lightweight for embedded/microcontrollers)
+quickjs = { version = "0.4", optional = true }
+micropython-sys = { version = "0.1", optional = true }  # MicroPython bindings
+wren = { version = "0.4", optional = true }
 
 winit = { workspace = true }
 glam = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 pollster = { workspace = true }
-mlua = { version = "0.9", features = ["luajit", "vendored"] }
+mlua = { version = "0.9", features = ["luajit", "vendored"], optional = true }
 regex = "1.10"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
 
 [features]
-default = ["wgpu"]
+default = ["wgpu"]  # No VMs by default - user chooses what they need
+
+# Renderer backends (existing)
 wgpu = ["dep:kryon-wgpu"]
-ratatui = ["dep:kryon-ratatui"]
+ratatui = ["dep:kryon-ratatui"] 
 raylib = ["dep:kryon-raylib"]
+
+# VM backends (new) - enable only what you use
+lua-vm = ["mlua"]
+javascript-vm = ["dep:quickjs"]  # "dep:kryon-runtime-javascript" - to be added when crate is created
+micropython-vm = ["dep:micropython-sys"]  # "dep:kryon-runtime-micropython" - to be added when crate is created
+wren-vm = ["dep:wren"]           # "dep:kryon-runtime-wren" - to be added when crate is created
+
+# Convenience presets for common combinations
+minimal-vms = ["lua-vm"]                                      # Microcontrollers
+embedded-vms = ["lua-vm", "javascript-vm"]                    # Embedded systems  
+desktop-vms = ["lua-vm", "javascript-vm", "micropython-vm"]   # Desktop apps
+all-vms = ["lua-vm", "javascript-vm", "micropython-vm", "wren-vm"]
