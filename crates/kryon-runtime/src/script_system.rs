@@ -213,6 +213,32 @@ impl ScriptSystem {
                 _pending_visibility_changes = {}
                 return changes
             end
+            
+            -- Template variable management
+            _pending_template_variable_changes = {}
+            
+            -- Function to set a template variable
+            function setTemplateVariable(name, value)
+                _pending_template_variable_changes[name] = tostring(value)
+                print("Queuing template variable change: " .. name .. " = " .. tostring(value))
+            end
+            
+            -- Function to get a template variable
+            function getTemplateVariable(name)
+                return _template_variables[name] or nil
+            end
+            
+            -- Function to get all template variables
+            function getTemplateVariables()
+                return _template_variables
+            end
+            
+            -- Function to get pending template variable changes
+            function _get_pending_template_variable_changes()
+                local changes = _pending_template_variable_changes
+                _pending_template_variable_changes = {}
+                return changes
+            end
         "#;
         
         self.lua.load(lua_code).exec()?;
@@ -545,5 +571,47 @@ impl ScriptSystem {
     
     pub fn get_state(&self, key: &str) -> Option<&PropertyValue> {
         self.state.get(key)
+    }
+    
+    /// Initialize template variables in the Lua context
+    pub fn initialize_template_variables(&mut self, variables: &HashMap<String, String>) -> Result<()> {
+        let globals = self.lua.globals();
+        
+        // Create the _template_variables table
+        let template_vars_table = self.lua.create_table()?;
+        for (name, value) in variables {
+            template_vars_table.set(name.clone(), value.clone())?;
+        }
+        globals.set("_template_variables", template_vars_table)?;
+        
+        tracing::info!("Initialized {} template variables in Lua context", variables.len());
+        Ok(())
+    }
+    
+    /// Apply pending template variable changes and return a map of changes
+    pub fn apply_pending_template_variable_changes(&mut self) -> Result<HashMap<String, String>> {
+        let globals = self.lua.globals();
+        
+        // Call the function to get pending changes
+        let get_pending_func: mlua::Function = globals.get("_get_pending_template_variable_changes")?;
+        let changes_table: mlua::Table = get_pending_func.call(())?;
+        
+        let mut changes = HashMap::new();
+        
+        // Iterate through the changes table
+        for pair in changes_table.pairs::<String, String>() {
+            let (name, value) = pair?;
+            changes.insert(name, value);
+        }
+        
+        // Update the _template_variables table with new values
+        if !changes.is_empty() {
+            let template_vars_table: mlua::Table = globals.get("_template_variables")?;
+            for (name, value) in &changes {
+                template_vars_table.set(name.clone(), value.clone())?;
+            }
+        }
+        
+        Ok(changes)
     }
 }

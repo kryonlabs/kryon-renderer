@@ -13,10 +13,12 @@ use std::time::{Duration, Instant};
 pub mod backends;
 pub mod event_system;
 pub mod script_system;
+pub mod template_engine;
 
 pub use backends::*;
 pub use event_system::*;
 pub use script_system::*;
+pub use template_engine::*;
 
 pub struct KryonApp<R: CommandRenderer> {
     // Core data
@@ -29,6 +31,7 @@ pub struct KryonApp<R: CommandRenderer> {
     renderer: ElementRenderer<R>,
     event_system: EventSystem,
     script_system: ScriptSystem,
+    template_engine: TemplateEngine,
     
     // State
     layout_result: LayoutResult,
@@ -65,6 +68,7 @@ impl<R: CommandRenderer> KryonApp<R> {
         
         let event_system = EventSystem::new();
         let script_system = ScriptSystem::new();
+        let template_engine = TemplateEngine::new(&krb_file);
         
         let mut app = Self {
             krb_file,
@@ -74,6 +78,7 @@ impl<R: CommandRenderer> KryonApp<R> {
             renderer,
             event_system,
             script_system,
+            template_engine,
             layout_result: LayoutResult {
                 computed_positions: HashMap::new(),
                 computed_sizes: HashMap::new(),
@@ -94,18 +99,25 @@ impl<R: CommandRenderer> KryonApp<R> {
         // Initialize scripts (now that DOM API is available)
         app.script_system.load_scripts(&app.krb_file.scripts)?;
         
+        // Initialize template variables in the script system
+        if app.template_engine.has_bindings() {
+            let template_vars = app.template_engine.get_variables();
+            app.script_system.initialize_template_variables(template_vars)?;
+        }
+        
         // Apply any initial visibility changes set by scripts during initialization
         let visibility_changes = app.script_system.apply_pending_visibility_changes(&mut app.elements)?;
         if visibility_changes {
             tracing::info!("Applied initial visibility changes from scripts");
         }
         
+        // Initialize template variables (apply default values to elements)
+        app.initialize_template_variables()?;
+        
         // Force initial layout computation
         app.update_layout()?;
         app.needs_layout = false; // Reset after initial layout
         
-
-
         Ok(app)
     }
     
@@ -122,6 +134,14 @@ impl<R: CommandRenderer> KryonApp<R> {
     pub fn update(&mut self, delta_time: Duration) -> anyhow::Result<()> {
         // Update script system
         self.script_system.update(delta_time, &mut self.elements)?;
+        
+        // Check for template variable changes from scripts
+        let template_changes = self.script_system.apply_pending_template_variable_changes()?;
+        if !template_changes.is_empty() {
+            for (name, value) in template_changes {
+                self.set_template_variable(&name, &value)?;
+            }
+        }
         
         // Process events
         self.event_system.update(&mut self.elements)?;
@@ -391,5 +411,57 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
     
     pub fn renderer_mut(&mut self) -> &mut ElementRenderer<R> {
         &mut self.renderer
+    }
+    
+    // Template variable methods
+    
+    /// Set a template variable and update affected elements
+    pub fn set_template_variable(&mut self, name: &str, value: &str) -> anyhow::Result<()> {
+        let affected_elements = self.template_engine.update_variable_and_get_affected_elements(name, value);
+        
+        if !affected_elements.is_empty() {
+            // Update the elements with new template values
+            self.template_engine.update_elements(&mut self.elements);
+            
+            // Mark layout and render as needed
+            self.mark_needs_layout();
+            self.mark_needs_render();
+            
+            tracing::info!("Template variable '{}' updated to '{}', affected {} elements", 
+                name, value, affected_elements.len());
+        }
+        
+        Ok(())
+    }
+    
+    /// Get a template variable value
+    pub fn get_template_variable(&self, name: &str) -> Option<&str> {
+        self.template_engine.get_variable(name)
+    }
+    
+    /// Get all template variables
+    pub fn get_template_variables(&self) -> &HashMap<String, String> {
+        self.template_engine.get_variables()
+    }
+    
+    /// Get all template variable names
+    pub fn get_template_variable_names(&self) -> Vec<String> {
+        self.template_engine.get_variable_names()
+    }
+    
+    /// Check if template variables are available
+    pub fn has_template_variables(&self) -> bool {
+        self.template_engine.has_bindings()
+    }
+    
+    /// Initialize template variables (apply initial values to elements)
+    pub fn initialize_template_variables(&mut self) -> anyhow::Result<()> {
+        if self.template_engine.has_bindings() {
+            self.template_engine.update_elements(&mut self.elements);
+            self.mark_needs_layout();
+            self.mark_needs_render();
+            tracing::info!("Template variables initialized");
+        }
+        Ok(())
     }
 }

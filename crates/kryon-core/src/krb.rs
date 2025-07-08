@@ -12,6 +12,8 @@ pub struct KRBFile {
     pub root_element_id: Option<u32>,
     pub resources: Vec<String>,
     pub scripts: Vec<ScriptEntry>,
+    pub template_variables: Vec<TemplateVariable>,
+    pub template_bindings: Vec<TemplateBinding>,
 }
 
 #[derive(Debug)]
@@ -25,6 +27,8 @@ pub struct KRBHeader {
     pub script_count: u16,
     pub string_count: u16,
     pub resource_count: u16,
+    pub template_variable_count: u16,
+    pub template_binding_count: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +37,21 @@ pub struct ScriptEntry {
     pub name: String,
     pub code: String,
     pub entry_points: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TemplateVariable {
+    pub name: String,
+    pub value_type: u8,
+    pub default_value: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TemplateBinding {
+    pub element_index: u16,
+    pub property_id: u8,
+    pub template_expression: String,
+    pub variable_indices: Vec<u8>,
 }
 
 pub struct KRBParser {
@@ -61,6 +80,8 @@ impl KRBParser {
         let mut elements = self.parse_element_tree(&header, &strings)?;
         let resources = self.parse_resource_table(&header)?;
         let scripts = self.parse_script_table(&header, &strings)?;
+        let template_variables = self.parse_template_variables(&header, &strings)?;
+        let template_bindings = self.parse_template_bindings(&header, &strings)?;
         
         // Apply style-based layout flags to elements
         self.apply_style_layout_flags(&mut elements, &styles)?;
@@ -82,11 +103,13 @@ impl KRBParser {
             root_element_id,
             resources,
             scripts,
+            template_variables,
+            template_bindings,
         })
     }
     
     fn parse_style_table(&mut self, header: &KRBHeader, strings: &[String]) -> Result<HashMap<u8, Style>> {
-        let style_offset = self.read_u32_at(26) as usize;
+        let style_offset = self.read_u32_at(30) as usize;
         let mut styles = HashMap::new();
         
         eprintln!("[STYLE] Parsing {} styles from offset 0x{:X}", header.style_count, style_offset);
@@ -383,7 +406,7 @@ impl KRBParser {
     }
 
     fn parse_header(&mut self) -> Result<KRBHeader> {
-        if self.data.len() < 54 {
+        if self.data.len() < 66 {
             return Err(KryonError::InvalidKRB("File too small".to_string()));
         }
         
@@ -400,11 +423,13 @@ impl KRBParser {
             script_count: self.read_u16_at(16),
             string_count: self.read_u16_at(18),
             resource_count: self.read_u16_at(20),
+            template_variable_count: self.read_u16_at(22),
+            template_binding_count: self.read_u16_at(24),
         })
     }
     
     fn parse_string_table(&mut self, header: &KRBHeader) -> Result<Vec<String>> {
-        let string_offset = self.read_u32_at(42) as usize;
+        let string_offset = self.read_u32_at(46) as usize;
         let mut strings = Vec::new();
         
         self.position = string_offset;
@@ -421,7 +446,7 @@ impl KRBParser {
     }
     
     fn parse_element_tree(&mut self, header: &KRBHeader, strings: &[String]) -> Result<HashMap<u32, Element>> {
-        let element_offset = self.read_u32_at(22) as usize;
+        let element_offset = self.read_u32_at(26) as usize;
         let mut elements = HashMap::new();
         
         self.position = element_offset;
@@ -1018,7 +1043,7 @@ impl KRBParser {
     }
     
     fn parse_resource_table(&mut self, header: &KRBHeader) -> Result<Vec<String>> {
-        let resource_offset = self.read_u32_at(46) as usize;
+        let resource_offset = self.read_u32_at(50) as usize;
         let mut resources = Vec::new();
         
         self.position = resource_offset;
@@ -1035,7 +1060,7 @@ impl KRBParser {
     }
     
     fn parse_script_table(&mut self, header: &KRBHeader, strings: &[String]) -> Result<Vec<ScriptEntry>> {
-        let script_offset = self.read_u32_at(38) as usize;
+        let script_offset = self.read_u32_at(42) as usize;
         let mut scripts = Vec::new();
         
         self.position = script_offset;
@@ -1091,6 +1116,73 @@ impl KRBParser {
         }
         
         Ok(scripts)
+    }
+    
+    fn parse_template_variables(&mut self, header: &KRBHeader, strings: &[String]) -> Result<Vec<TemplateVariable>> {
+        let template_var_offset = self.read_u32_at(54) as usize;
+        let mut template_variables = Vec::new();
+        
+        self.position = template_var_offset;
+        
+        for _ in 0..header.template_variable_count {
+            let name_index = self.read_u8() as usize;
+            let value_type = self.read_u8();
+            let default_value_index = self.read_u8() as usize;
+            
+            let name = if name_index < strings.len() {
+                strings[name_index].clone()
+            } else {
+                format!("template_var_{}", template_variables.len())
+            };
+            
+            let default_value = if default_value_index < strings.len() {
+                strings[default_value_index].clone()
+            } else {
+                String::new()
+            };
+            
+            template_variables.push(TemplateVariable {
+                name,
+                value_type,
+                default_value,
+            });
+        }
+        
+        Ok(template_variables)
+    }
+    
+    fn parse_template_bindings(&mut self, header: &KRBHeader, strings: &[String]) -> Result<Vec<TemplateBinding>> {
+        let template_binding_offset = self.read_u32_at(58) as usize;
+        let mut template_bindings = Vec::new();
+        
+        self.position = template_binding_offset;
+        
+        for _ in 0..header.template_binding_count {
+            let element_index = self.read_u16();
+            let property_id = self.read_u8();
+            let template_expression_index = self.read_u8() as usize;
+            let variable_count = self.read_u8();
+            
+            let template_expression = if template_expression_index < strings.len() {
+                strings[template_expression_index].clone()
+            } else {
+                String::new()
+            };
+            
+            let mut variable_indices = Vec::new();
+            for _ in 0..variable_count {
+                variable_indices.push(self.read_u8());
+            }
+            
+            template_bindings.push(TemplateBinding {
+                element_index,
+                property_id,
+                template_expression,
+                variable_indices,
+            });
+        }
+        
+        Ok(template_bindings)
     }
     
     fn create_default_app_wrapper(elements: &mut HashMap<ElementId, Element>) -> Option<ElementId> {
