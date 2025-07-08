@@ -19,7 +19,7 @@ pub struct TemplateEngine {
 impl TemplateEngine {
     /// Create a new template engine from KRB file data
     pub fn new(krb_file: &KRBFile) -> Self {
-        let template_regex = Regex::new(r"\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}").unwrap();
+        let template_regex = Regex::new(r"\$([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
         
         // Initialize variables with their default values
         let mut variables = HashMap::new();
@@ -60,12 +60,12 @@ impl TemplateEngine {
     pub fn evaluate_expression(&self, expression: &str) -> String {
         let mut result = expression.to_string();
         
-        // Replace all {{variable}} patterns with their values
+        // Replace all $variable patterns with their values
         for capture in self.template_regex.captures_iter(expression) {
             if let Some(var_name) = capture.get(1) {
                 let var_name_str = var_name.as_str();
                 if let Some(value) = self.variables.get(var_name_str) {
-                    let pattern = format!("{{{{{}}}}}", var_name_str);
+                    let pattern = format!("${}", var_name_str);
                     result = result.replace(&pattern, value);
                 }
             }
@@ -86,9 +86,7 @@ impl TemplateEngine {
                         element.text = evaluated_value;
                     }
                     // Add more property types as needed
-                    _ => {
-                        eprintln!("[TEMPLATE] Unknown property ID: 0x{:02X}", binding.property_id);
-                    }
+                    _ => {}
                 }
             }
         }
@@ -160,7 +158,7 @@ mod tests {
             TemplateBinding {
                 element_index: 1,
                 property_id: 0x08,
-                template_expression: "Count: {{counter_value}}".to_string(),
+                template_expression: "Count: $counter_value".to_string(),
                 variable_indices: vec![0],
             }
         ];
@@ -220,10 +218,10 @@ mod tests {
         
         engine.set_variable("counter_value", "42");
         
-        let result = engine.evaluate_expression("Count: {{counter_value}}");
+        let result = engine.evaluate_expression("Count: $counter_value");
         assert_eq!(result, "Count: 42");
         
-        let result = engine.evaluate_expression("Value is {{counter_value}} items");
+        let result = engine.evaluate_expression("Value is $counter_value items");
         assert_eq!(result, "Value is 42 items");
     }
     

@@ -44,17 +44,12 @@ impl ScriptSystem {
         self.scripts = scripts.to_vec();
         
         for script in &self.scripts {
-            tracing::info!("Loaded {} script: {}", script.language, script.name);
-            
             // Load Lua scripts into the Lua context
             if script.language == "lua" && !script.code.is_empty() && !script.code.starts_with("external:") {
-                tracing::debug!("Loading Lua script: {}", script.name);
-                tracing::debug!("Script content: {}", script.code);
-                
                 // Execute the script to load the functions
                 match self.lua.load(&script.code).exec() {
                     Ok(()) => {
-                        tracing::info!("Successfully loaded Lua script: {}", script.name);
+                        // Remove script load logs
                     }
                     Err(e) => {
                         tracing::error!("Failed to load Lua script '{}': {}", script.name, e);
@@ -70,7 +65,7 @@ impl ScriptSystem {
         let globals = self.lua.globals();
         
         // Helper function to find style ID by name
-        let find_style_id = |style_name: &str| -> Option<u8> {
+        let _find_style_id = |style_name: &str| -> Option<u8> {
             krb_file.styles.iter()
                 .find(|(_, style)| style.name == style_name)
                 .map(|(style_id, _)| *style_id)
@@ -214,26 +209,41 @@ impl ScriptSystem {
                 return changes
             end
             
-            -- Template variable management
+            -- Template variable management (legacy functions for backward compatibility)
             _pending_template_variable_changes = {}
             
-            -- Function to set a template variable
+            -- Function to set a template variable (legacy - use direct variable assignment instead)
             function setTemplateVariable(name, value)
-                _pending_template_variable_changes[name] = tostring(value)
-                print("Queuing template variable change: " .. name .. " = " .. tostring(value))
+                -- Use the reactive system if available, otherwise fall back to pending changes
+                if _G[name] and type(_G[name]) == "table" and getmetatable(_G[name]) then
+                    -- This is a reactive variable
+                    _G[name].value = value
+                    print("Using reactive variable: " .. name .. " = " .. tostring(value))
+                else
+                    -- Fall back to legacy system
+                    _pending_template_variable_changes[name] = tostring(value)
+                    print("Queuing template variable change (legacy): " .. name .. " = " .. tostring(value))
+                end
             end
             
-            -- Function to get a template variable
+            -- Function to get a template variable (legacy - use direct variable access instead)
             function getTemplateVariable(name)
-                return _template_variables[name] or nil
+                -- Use the reactive system if available, otherwise fall back to template variables table
+                if _G[name] and type(_G[name]) == "table" and getmetatable(_G[name]) then
+                    -- This is a reactive variable
+                    return tostring(_G[name])
+                else
+                    -- Fall back to legacy system
+                    return _template_variables[name] or nil
+                end
             end
             
-            -- Function to get all template variables
+            -- Function to get all template variables (legacy)
             function getTemplateVariables()
                 return _template_variables
             end
             
-            -- Function to get pending template variable changes
+            -- Function to get pending template variable changes (legacy)
             function _get_pending_template_variable_changes()
                 local changes = _pending_template_variable_changes
                 _pending_template_variable_changes = {}
@@ -427,20 +437,16 @@ impl ScriptSystem {
     }
     
     pub fn call_function(&mut self, function_name: &str, _args: Vec<PropertyValue>) -> Result<()> {
-        tracing::debug!("Script function called: {}", function_name);
-        
         // Find the script that contains this function
         for script in &self.scripts {
             if script.entry_points.contains(&function_name.to_string()) {
-                tracing::debug!("Found function {} in script {}", function_name, script.name);
-                
                 // Execute the Lua function
                 if script.language == "lua" {
                     match self.lua.globals().get::<_, mlua::Function>(function_name) {
                         Ok(lua_function) => {
                             match lua_function.call::<_, ()>(()) {
                                 Ok(()) => {
-                                    tracing::debug!("Lua function '{}' executed successfully", function_name);
+                                    // Remove debug logs
                                 }
                                 Err(e) => {
                                     tracing::error!("Error executing Lua function '{}': {}", function_name, e);
@@ -573,45 +579,274 @@ impl ScriptSystem {
         self.state.get(key)
     }
     
-    /// Initialize template variables in the Lua context
+    /// Initialize template variables in the Lua context as reactive variables
     pub fn initialize_template_variables(&mut self, variables: &HashMap<String, String>) -> Result<()> {
         let globals = self.lua.globals();
         
-        // Create the _template_variables table
+        // Create the _template_variables table (internal storage)
         let template_vars_table = self.lua.create_table()?;
         for (name, value) in variables {
             template_vars_table.set(name.clone(), value.clone())?;
         }
         globals.set("_template_variables", template_vars_table)?;
         
-        tracing::info!("Initialized {} template variables in Lua context", variables.len());
+        // Create reactive variables using metamethods
+        let reactive_setup_code = r#"
+            -- Initialize reactive template variables
+            _template_variable_changes = {}
+            
+            -- Create reactive variable proxy
+            local function create_reactive_variable(name, initial_value)
+                local value = initial_value
+                return {
+                    get = function() return value end,
+                    set = function(new_value)
+                        if value ~= new_value then
+                            value = tostring(new_value)
+                            _template_variable_changes[name] = value
+                            _template_variables[name] = value
+                        end
+                    end,
+                    __tostring = function() return value end,
+                    __eq = function(other) return value == tostring(other) end,
+                    __lt = function(other) return tonumber(value) and tonumber(other) and tonumber(value) < tonumber(other) end,
+                    __le = function(other) return tonumber(value) and tonumber(other) and tonumber(value) <= tonumber(other) end,
+                    __add = function(other) return (tonumber(value) or 0) + (tonumber(other) or 0) end,
+                    __sub = function(other) return (tonumber(value) or 0) - (tonumber(other) or 0) end,
+                    __mul = function(other) return (tonumber(value) or 0) * (tonumber(other) or 0) end,
+                    __div = function(other) return (tonumber(value) or 0) / (tonumber(other) or 0) end,
+                    __concat = function(other) return value .. tostring(other) end
+                }
+            end
+            
+            -- Store all reactive variables in a central registry
+            _reactive_variables = {}
+            
+            -- Create reactive variables for each template variable
+            for name, value in pairs(_template_variables) do
+                local reactive_var = create_reactive_variable(name, value)
+                _reactive_variables[name] = reactive_var
+                
+                -- DO NOT set _G[name] directly - let the metamethod handle all access
+            end
+            
+            
+            -- Set up global metamethod to intercept all global variable access
+            local original_g_mt = getmetatable(_G) or {}
+            
+            setmetatable(_G, {
+                __index = function(t, k)
+                    -- Check if this is a reactive variable
+                    if _reactive_variables[k] then
+                        return _reactive_variables[k].get()
+                    end
+                    -- Use original index behavior
+                    if original_g_mt.__index then
+                        return original_g_mt.__index(t, k)
+                    else
+                        return rawget(t, k)
+                    end
+                end,
+                __newindex = function(t, k, v)
+                    -- Check if this is a reactive variable
+                    if _reactive_variables[k] then
+                        -- This is a reactive variable, use the reactive setter
+                        _reactive_variables[k].set(v)
+                        -- DO NOT use rawset for reactive variables - let all access go through metamethods
+                    else
+                        -- Not a reactive variable, use normal assignment
+                        if original_g_mt.__newindex then
+                            original_g_mt.__newindex(t, k, v)
+                        else
+                            rawset(t, k, v)
+                        end
+                    end
+                end
+            })
+            
+            -- Function to get pending template variable changes
+            function _get_reactive_template_variable_changes()
+                local changes = _template_variable_changes
+                _template_variable_changes = {}
+                return changes
+            end
+        "#;
+        
+        self.lua.load(reactive_setup_code).exec()?;
         Ok(())
     }
     
     /// Apply pending template variable changes and return a map of changes
     pub fn apply_pending_template_variable_changes(&mut self) -> Result<HashMap<String, String>> {
         let globals = self.lua.globals();
-        
-        // Call the function to get pending changes
-        let get_pending_func: mlua::Function = globals.get("_get_pending_template_variable_changes")?;
-        let changes_table: mlua::Table = get_pending_func.call(())?;
-        
         let mut changes = HashMap::new();
         
-        // Iterate through the changes table
-        for pair in changes_table.pairs::<String, String>() {
-            let (name, value) = pair?;
-            changes.insert(name, value);
-        }
-        
-        // Update the _template_variables table with new values
-        if !changes.is_empty() {
-            let template_vars_table: mlua::Table = globals.get("_template_variables")?;
-            for (name, value) in &changes {
-                template_vars_table.set(name.clone(), value.clone())?;
+        // First, try to get reactive changes (new system)
+        if let Ok(get_reactive_func) = globals.get::<_, mlua::Function>("_get_reactive_template_variable_changes") {
+            let reactive_changes: mlua::Table = get_reactive_func.call(())?;
+            
+            // Iterate through the reactive changes table
+            for pair in reactive_changes.pairs::<String, String>() {
+                let (name, value) = pair?;
+                changes.insert(name, value);
             }
         }
         
+        // Then, get legacy changes (backward compatibility)
+        if let Ok(get_legacy_func) = globals.get::<_, mlua::Function>("_get_pending_template_variable_changes") {
+            let legacy_changes: mlua::Table = get_legacy_func.call(())?;
+            
+            // Collect changes first
+            let mut legacy_change_pairs = Vec::new();
+            for pair in legacy_changes.pairs::<String, String>() {
+                let (name, value) = pair?;
+                legacy_change_pairs.push((name, value));
+            }
+            
+            // Add to changes map
+            for (name, value) in &legacy_change_pairs {
+                changes.insert(name.clone(), value.clone());
+            }
+            
+            // Update the _template_variables table with legacy changes
+            if !legacy_change_pairs.is_empty() {
+                let template_vars_table: mlua::Table = globals.get("_template_variables")?;
+                for (name, value) in &legacy_change_pairs {
+                    template_vars_table.set(name.clone(), value.clone())?;
+                }
+            }
+        }
+        
+        // Remove log for applied changes count
+        
         Ok(changes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_reactive_template_variables() {
+        let mut script_system = ScriptSystem::new();
+        
+        // Create test template variables
+        let mut template_variables = HashMap::new();
+        template_variables.insert("counter".to_string(), "0".to_string());
+        template_variables.insert("message".to_string(), "Hello".to_string());
+        template_variables.insert("enabled".to_string(), "true".to_string());
+        
+        // Initialize reactive template variables
+        script_system.initialize_template_variables(&template_variables).unwrap();
+        
+        // Test script that uses reactive variables
+        let test_script = r#"
+            -- Test direct variable access
+            assert(tostring(counter) == "0", "Initial counter should be 0")
+            assert(tostring(message) == "Hello", "Initial message should be Hello")
+            assert(tostring(enabled) == "true", "Initial enabled should be true")
+            
+            -- Test direct assignment (should trigger reactive updates)
+            counter = 5
+            message = "World"
+            enabled = false
+            
+            -- Test values after assignment
+            assert(tostring(counter) == "5", "Counter should be 5 after assignment")
+            assert(tostring(message) == "World", "Message should be World after assignment")
+            assert(tostring(enabled) == "false", "Enabled should be false after assignment")
+            
+            -- Test arithmetic operations
+            counter = counter + 10
+            assert(tostring(counter) == "15", "Counter should be 15 after addition")
+            
+            -- Test string concatenation
+            message = message .. "!"
+            assert(tostring(message) == "World!", "Message should be World! after concatenation")
+            
+            -- Test legacy functions (backward compatibility)
+            assert(getTemplateVariable("counter") == "15", "Legacy getter should work")
+            setTemplateVariable("counter", 100)
+            assert(tostring(counter) == "100", "Legacy setter should work")
+            
+            print("All reactive variable tests passed!")
+        "#;
+        
+        // Execute the test script
+        script_system.lua.load(test_script).exec().unwrap();
+        
+        // Check for pending changes
+        let changes = script_system.apply_pending_template_variable_changes().unwrap();
+        assert!(!changes.is_empty(), "Should have detected changes");
+        
+        // Verify specific changes
+        assert_eq!(changes.get("counter"), Some(&"100".to_string()));
+        assert_eq!(changes.get("message"), Some(&"World!".to_string()));
+        assert_eq!(changes.get("enabled"), Some(&"false".to_string()));
+    }
+    
+    #[test]
+    fn test_reactive_variable_operations() {
+        let mut script_system = ScriptSystem::new();
+        
+        // Create test template variables
+        let mut template_variables = HashMap::new();
+        template_variables.insert("num1".to_string(), "10".to_string());
+        template_variables.insert("num2".to_string(), "5".to_string());
+        template_variables.insert("text".to_string(), "Hello".to_string());
+        
+        // Initialize reactive template variables
+        script_system.initialize_template_variables(&template_variables).unwrap();
+        
+        // Test script for mathematical and string operations
+        let test_script = r#"
+            -- Test mathematical operations
+            local sum = num1 + num2
+            assert(sum == 15, "Addition should work: " .. sum)
+            
+            local diff = num1 - num2
+            assert(diff == 5, "Subtraction should work: " .. diff)
+            
+            local product = num1 * num2
+            assert(product == 50, "Multiplication should work: " .. product)
+            
+            local quotient = num1 / num2
+            assert(quotient == 2, "Division should work: " .. quotient)
+            
+            -- Test comparison operations
+            assert(num1 > num2, "Comparison should work")
+            assert(num2 < num1, "Reverse comparison should work")
+            assert(num1 >= num2, "Greater than or equal should work")
+            assert(num2 <= num1, "Less than or equal should work")
+            
+            -- Test string concatenation
+            local greeting = text .. " World"
+            assert(greeting == "Hello World", "String concatenation should work")
+            
+            -- Test equality comparison
+            assert(text == "Hello", "String equality should work")
+            
+            -- Test modification through operations
+            num1 = num1 + 5
+            assert(tostring(num1) == "15", "Modified num1 should be 15")
+            
+            text = text .. " World"
+            assert(tostring(text) == "Hello World", "Modified text should be Hello World")
+            
+            print("All reactive variable operations tests passed!")
+        "#;
+        
+        // Execute the test script
+        script_system.lua.load(test_script).exec().unwrap();
+        
+        // Check for pending changes
+        let changes = script_system.apply_pending_template_variable_changes().unwrap();
+        assert!(!changes.is_empty(), "Should have detected changes from operations");
+        
+        // Verify specific changes
+        assert_eq!(changes.get("num1"), Some(&"15".to_string()));
+        assert_eq!(changes.get("text"), Some(&"Hello World".to_string()));
     }
 }

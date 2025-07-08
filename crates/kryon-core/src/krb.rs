@@ -1122,9 +1122,11 @@ impl KRBParser {
         let template_var_offset = self.read_u32_at(54) as usize;
         let mut template_variables = Vec::new();
         
+        println!("PARSE: template_variable_count = {}, offset = 0x{:X}", header.template_variable_count, template_var_offset);
+        
         self.position = template_var_offset;
         
-        for _ in 0..header.template_variable_count {
+        for i in 0..header.template_variable_count {
             let name_index = self.read_u8() as usize;
             let value_type = self.read_u8();
             let default_value_index = self.read_u8() as usize;
@@ -1141,6 +1143,9 @@ impl KRBParser {
                 String::new()
             };
             
+            println!("PARSE: template_variable[{}]: name='{}' (idx={}), type={}, default='{}' (idx={})", 
+                i, name, name_index, value_type, default_value, default_value_index);
+            
             template_variables.push(TemplateVariable {
                 name,
                 value_type,
@@ -1155,9 +1160,11 @@ impl KRBParser {
         let template_binding_offset = self.read_u32_at(58) as usize;
         let mut template_bindings = Vec::new();
         
+        println!("PARSE: template_binding_count = {}, offset = 0x{:X}", header.template_binding_count, template_binding_offset);
+        
         self.position = template_binding_offset;
         
-        for _ in 0..header.template_binding_count {
+        for i in 0..header.template_binding_count {
             let element_index = self.read_u16();
             let property_id = self.read_u8();
             let template_expression_index = self.read_u8() as usize;
@@ -1173,6 +1180,9 @@ impl KRBParser {
             for _ in 0..variable_count {
                 variable_indices.push(self.read_u8());
             }
+            
+            println!("PARSE: template_binding[{}]: element={}, property=0x{:02X}, expr='{}' (idx={}), vars={:?}", 
+                i, element_index, property_id, template_expression, template_expression_index, variable_indices);
             
             template_bindings.push(TemplateBinding {
                 element_index,

@@ -314,7 +314,18 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
                         let text_changes = self.script_system.apply_pending_text_changes(&mut self.elements)?;
                         let visibility_changes = self.script_system.apply_pending_visibility_changes(&mut self.elements)?;
                         
-                        if style_changes || state_changes || text_changes || visibility_changes {
+                        // Apply template variable changes from scripts
+                        let template_changes = self.script_system.apply_pending_template_variable_changes()?;
+                        let template_variable_changes = if !template_changes.is_empty() {
+                            for (name, value) in template_changes {
+                                self.set_template_variable(&name, &value)?;
+                            }
+                            true
+                        } else {
+                            false
+                        };
+                        
+                        if style_changes || state_changes || text_changes || visibility_changes || template_variable_changes {
                             tracing::info!("Changes applied, triggering re-render");
                             self.needs_render = true;
                         }
@@ -417,9 +428,15 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
     
     /// Set a template variable and update affected elements
     pub fn set_template_variable(&mut self, name: &str, value: &str) -> anyhow::Result<()> {
-        let affected_elements = self.template_engine.update_variable_and_get_affected_elements(name, value);
         
-        if !affected_elements.is_empty() {
+        // Force update the template variable (ignore change detection for now)
+        self.template_engine.set_variable(name, value);
+        
+        // Always update elements if we have bindings for this variable
+        let bindings_for_var = self.template_engine.get_bindings_for_variable(name);
+        let bindings_count = bindings_for_var.len();
+        
+        if !bindings_for_var.is_empty() {
             // Update the elements with new template values
             self.template_engine.update_elements(&mut self.elements);
             
@@ -428,7 +445,7 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
             self.mark_needs_render();
             
             tracing::info!("Template variable '{}' updated to '{}', affected {} elements", 
-                name, value, affected_elements.len());
+                name, value, bindings_count);
         }
         
         Ok(())
