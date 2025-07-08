@@ -199,10 +199,14 @@ impl TaffyLayoutEngine {
         if element.element_type == kryon_core::ElementType::Text {
             style.display = Display::Block;
             
-            // Always use full width for text elements to ensure consistent alignment
-            // This prevents text alignment issues when containers have different sizes
-            style.size.width = Dimension::Percent(1.0); // Fill 100% of parent container
-            eprintln!("[TAFFY_TEXT_SIZE] Element '{}': using 100% width for consistent alignment", element.id);
+            // Only use full width if no explicit width was set in CSS
+            // Check if width is still auto (not set explicitly)
+            if style.size.width == Dimension::Auto {
+                style.size.width = Dimension::Percent(1.0); // Fill 100% of parent container
+                eprintln!("[TAFFY_TEXT_SIZE] Element '{}': using 100% width for consistent alignment (no explicit width)", element.id);
+            } else {
+                eprintln!("[TAFFY_TEXT_SIZE] Element '{}': respecting explicit width {:?}", element.id, style.size.width);
+            }
             
             // Calculate intrinsic text height if not explicitly set
             if element.size.y == 0.0 {
