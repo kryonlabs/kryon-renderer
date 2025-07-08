@@ -199,22 +199,15 @@ impl TaffyLayoutEngine {
         if element.element_type == kryon_core::ElementType::Text {
             style.display = Display::Block;
             
-            // Calculate intrinsic text size if not explicitly set
-            if element.size.x == 0.0 || element.size.y == 0.0 {
-                let text_width = if !element.text.is_empty() {
-                    // Estimate: ~8 pixels per character, limited to reasonable width
-                    (element.text.len() as f32 * 8.0).min(400.0)
-                } else {
-                    50.0 // Default width for empty text
-                };
+            // Always use full width for text elements to ensure consistent alignment
+            // This prevents text alignment issues when containers have different sizes
+            style.size.width = Dimension::Percent(1.0); // Fill 100% of parent container
+            eprintln!("[TAFFY_TEXT_SIZE] Element '{}': using 100% width for consistent alignment", element.id);
+            
+            // Calculate intrinsic text height if not explicitly set
+            if element.size.y == 0.0 {
                 let text_height = element.font_size.max(16.0);
-                
-                if element.size.x == 0.0 {
-                    style.size.width = Dimension::Length(text_width);
-                }
-                if element.size.y == 0.0 {
-                    style.size.height = Dimension::Length(text_height);
-                }
+                style.size.height = Dimension::Length(text_height);
             }
         } else {
             // Set default display based on element type

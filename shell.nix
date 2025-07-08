@@ -159,19 +159,26 @@ pkgs.mkShell {
   shellHook = ''
     unset RUST_LOG
     
-    echo "🚀 DIRECT COMMANDS:"
+    # Quick renderer aliases
+    alias kryon-raylib='cargo run --features raylib --bin kryon-renderer-raylib --'
+    alias kryon-wgpu='cargo run --features wgpu --bin kryon-renderer-wgpu --'
+    alias kryon-ratatui='RUST_LOG=off cargo run --features ratatui --bin kryon-renderer-ratatui --'
+    alias kryon-debug='cargo run --bin kryon-renderer-debug --'
+    
+    # For ratatui with log file redirection
+    alias kryon-ratatui-log='RUST_LOG=debug cargo run --features ratatui --bin kryon-renderer-ratatui -- 2>ratatui.log'
+    
+    echo "🚀 QUICK ALIASES:"
     echo ""
-    echo "  # Debug (text) backend:"
-    echo '    cargo run --bin kryon-renderer-debug -- examples/01_getting_started/hello_world.krb'
+    echo "  kryon-raylib <file.krb>     - Run with Raylib backend"
+    echo "  kryon-wgpu <file.krb>       - Run with WGPU backend"
+    echo "  kryon-ratatui <file.krb>    - Run with Ratatui backend (no logs)"
+    echo "  kryon-ratatui-log <file.krb>- Run with Ratatui backend (logs to ratatui.log)"
+    echo "  kryon-debug <file.krb>      - Run with debug backend"
     echo ""
-    echo "  # Raylib backend:"
-    echo '    cargo run --features raylib --bin kryon-renderer-raylib -- examples/01_getting_started/hello_world.krb'
-    echo ""
-    echo "  # WGPU backend:"
-    echo '    cargo run --features wgpu --bin kryon-renderer-wgpu -- examples/01_getting_started/hello_world.krb'
-    echo ""
-    echo "  # Ratatui backend:"
-    echo '    cargo run --features ratatui --bin kryon-renderer-ratatui -- examples/01_getting_started/hello_world.krb'
+    echo "📝 EXAMPLES:"
+    echo "  kryon-raylib examples/02_basic_ui/tabbar_bottom_demo.krb"
+    echo "  kryon-ratatui examples/01_getting_started/hello_world.krb"
     echo ""
   '';
 }

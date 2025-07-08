@@ -94,6 +94,12 @@ impl<R: CommandRenderer> KryonApp<R> {
         // Initialize scripts (now that DOM API is available)
         app.script_system.load_scripts(&app.krb_file.scripts)?;
         
+        // Apply any initial visibility changes set by scripts during initialization
+        let visibility_changes = app.script_system.apply_pending_visibility_changes(&mut app.elements)?;
+        if visibility_changes {
+            tracing::info!("Applied initial visibility changes from scripts");
+        }
+        
         // Force initial layout computation
         app.update_layout()?;
         app.needs_layout = false; // Reset after initial layout

@@ -36,6 +36,9 @@ struct Args {
 }
 
 fn main() -> Result<()> {
+    // Initialize logging - this will output to stderr which can be redirected
+    tracing_subscriber::fmt::init();
+    
     let args = Args::parse();
 
     let original_hook = panic::take_hook();
@@ -57,7 +60,7 @@ fn main() -> Result<()> {
     cleanup_terminal()?;
 
     if let Err(e) = result {
-        eprintln!("Application exited with an error: {:?}", e);
+        tracing::error!("Application exited with an error: {:?}", e);
     }
 
     Ok(())
@@ -74,7 +77,7 @@ fn run(args: &Args) -> Result<()> {
     let mut app =
         KryonApp::new(&args.krb_file, renderer).context("Failed to create Kryon application")?;
 
-    println!("Starting terminal render loop... (Press 'q' to quit, click on buttons to interact)"); // This is ok, it's user-facing
+    tracing::info!("Starting terminal render loop... (Press 'q' to quit, click on buttons to interact)");
 
     let mut last_frame_time = Instant::now();
     loop {
@@ -88,7 +91,7 @@ fn run(args: &Args) -> Result<()> {
                         size: glam::vec2(width as f32, height as f32),
                     };
                     if let Err(e) = app.handle_input(event) {
-                        eprintln!("Failed to handle resize: {:?}", e);
+                        tracing::error!("Failed to handle resize: {:?}", e);
                     }
                 }
                 CrosstermEvent::Mouse(mouse_event) => {
@@ -99,7 +102,7 @@ fn run(args: &Args) -> Result<()> {
                                 button: kryon_render::MouseButton::Left,
                             };
                             if let Err(e) = app.handle_input(event) {
-                                eprintln!("Failed to handle mouse click: {:?}", e);
+                                tracing::error!("Failed to handle mouse click: {:?}", e);
                             }
                         }
                         _ => {}
@@ -112,12 +115,12 @@ fn run(args: &Args) -> Result<()> {
         let delta_time = last_frame_time.elapsed();
         last_frame_time = Instant::now();
         if let Err(e) = app.update(delta_time) {
-            eprintln!("Failed to update app: {:?}", e);
+            tracing::error!("Failed to update app: {:?}", e);
             break;
         }
 
         if let Err(e) = app.render() {
-            eprintln!("Failed to render frame: {:?}", e);
+            tracing::error!("Failed to render frame: {:?}", e);
             break;
         }
     }

@@ -948,7 +948,7 @@ impl KRBParser {
         let flex_grow = element.custom_properties.get("flex_grow")
             .and_then(|v| if let PropertyValue::Float(f) = v { Some(*f) } else { None });
         
-        // Only process if we have flexbox display
+        // Process flex container properties if we have display: flex
         if let Some(display_val) = display {
             if display_val == "flex" {
                 // Set direction
@@ -998,16 +998,20 @@ impl KRBParser {
                     layout_flags = (layout_flags & !0x0C) | 0x04; // LAYOUT_ALIGNMENT_CENTER
                 }
                 
-                // Set grow flag
-                if let Some(grow) = flex_grow {
-                    if grow > 0.0 {
-                        layout_flags |= 0x20; // LAYOUT_GROW_BIT
-                    }
-                }
-                
                 eprintln!("[CSS_CONVERT] Element '{}': display={}, flex_direction={:?}, align_items={:?}, justify_content={:?} -> layout_flags=0x{:02X}", 
                     element.id, display_val, flex_direction, align_items, justify_content, layout_flags);
                 
+                element.layout_flags = layout_flags;
+            }
+        }
+        
+        // Process flex item properties (like flex_grow) regardless of display property
+        // These apply to children of flex containers
+        if let Some(grow) = flex_grow {
+            if grow > 0.0 {
+                layout_flags |= 0x20; // LAYOUT_GROW_BIT
+                eprintln!("[CSS_CONVERT_FLEX_ITEM] Element '{}': flex_grow={} -> layout_flags=0x{:02X}", 
+                    element.id, grow, layout_flags);
                 element.layout_flags = layout_flags;
             }
         }
