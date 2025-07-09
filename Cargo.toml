@@ -73,10 +73,10 @@ crossterm = { version = "0.27", optional = true }
 raylib = { version = "5.0", optional = true }
 
 [features]
-default = ["wgpu", "ratatui"]
-wgpu = ["dep:kryon-wgpu", "dep:wgpu", "dep:winit", "dep:pollster", "kryon-runtime/wgpu"]
-ratatui = ["dep:kryon-ratatui", "dep:ratatui", "dep:crossterm", "kryon-runtime/ratatui"]
-raylib = ["dep:kryon-raylib", "dep:raylib", "kryon-runtime/raylib"]
+default = ["raylib", "kryon-runtime/lua-vm"]
+wgpu = ["dep:kryon-wgpu", "dep:wgpu", "dep:winit", "dep:pollster", "kryon-runtime/wgpu", "kryon-runtime/lua-vm"]
+ratatui = ["dep:kryon-ratatui", "dep:ratatui", "dep:crossterm", "kryon-runtime/ratatui", "kryon-runtime/lua-vm"]
+raylib = ["dep:kryon-raylib", "dep:raylib", "kryon-runtime/raylib", "kryon-runtime/lua-vm"]
 
 [workspace.dependencies]
 # Common dependencies

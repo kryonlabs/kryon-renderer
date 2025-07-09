@@ -74,12 +74,12 @@ impl Default for VMConfig {
             });
         }
         
-        #[cfg(feature = "micropython-vm")]
+        #[cfg(feature = "rustpython-vm")]
         {
             enabled_vms.push("python".to_string());
             vm_settings.insert("python".to_string(), VMSettings {
                 limits: VMResourceLimits {
-                    max_memory: Some(256 * 1024), // 256KB for MicroPython (much lighter than CPython)
+                    max_memory: Some(512 * 1024), // 512KB for RustPython (more than MicroPython)
                     max_execution_time: Some(1000),
                     max_global_variables: Some(50),
                     max_string_length: Some(512),
@@ -136,8 +136,8 @@ impl VMRegistry {
         #[cfg(feature = "javascript-vm")]
         registry.register_factory("javascript", Box::new(JavaScriptVMFactory));
 
-        #[cfg(feature = "micropython-vm")]
-        registry.register_factory("python", Box::new(MicroPythonVMFactory));
+        #[cfg(feature = "rustpython-vm")]
+        registry.register_factory("python", Box::new(RustPythonVMFactory));
 
         #[cfg(feature = "wren-vm")]
         registry.register_factory("wren", Box::new(WrenVMFactory));
@@ -187,7 +187,7 @@ impl VMRegistry {
         let feature_name = match language {
             "lua" => "lua-vm",
             "javascript" => "javascript-vm", 
-            "python" => "micropython-vm",
+            "python" => "rustpython-vm",
             "wren" => "wren-vm",
             _ => "unknown-vm",
         };
@@ -455,17 +455,17 @@ impl VMFactory for JavaScriptVMFactory {
     }
 }
 
-#[cfg(feature = "micropython-vm")]
-pub struct MicroPythonVMFactory;
+#[cfg(feature = "rustpython-vm")]
+pub struct RustPythonVMFactory;
 
-#[cfg(feature = "micropython-vm")]
-impl VMFactory for MicroPythonVMFactory {
+#[cfg(feature = "rustpython-vm")]
+impl VMFactory for RustPythonVMFactory {
     fn create_vm(&self) -> Result<Box<dyn ScriptVM>> {
-        todo!("MicroPython VM implementation pending")
+        todo!("RustPython VM implementation pending")
     }
 
     fn create_vm_with_limits(&self, _limits: VMResourceLimits) -> Result<Box<dyn ScriptVM>> {
-        todo!("MicroPython VM implementation pending")
+        todo!("RustPython VM implementation pending")
     }
 
     fn language_name(&self) -> &'static str {
@@ -478,7 +478,7 @@ impl VMFactory for MicroPythonVMFactory {
 
     fn default_limits(&self) -> VMResourceLimits {
         VMResourceLimits {
-            max_memory: Some(256 * 1024), // 256KB for MicroPython (much lighter)
+            max_memory: Some(512 * 1024), // 512KB for RustPython
             max_execution_time: Some(1000),
             max_global_variables: Some(50),
             max_string_length: Some(512),
@@ -493,8 +493,8 @@ impl VMFactory for MicroPythonVMFactory {
             supports_objects: true,
             supports_arrays: true,
             supports_metamethods: true, // Python has __getattr__, __setattr__
-            embedded_optimized: true, // MicroPython is optimized for embedded systems
-            supports_jit: false, // MicroPython doesn't have JIT
+            embedded_optimized: false, // RustPython is not optimized for embedded systems
+            supports_jit: false, // RustPython doesn't have JIT
         }
     }
 }

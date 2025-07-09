@@ -20,9 +20,9 @@ kryon-raylib = { path = "../kryon-raylib", optional = true }
 # kryon-runtime-wren = { path = "../kryon-runtime-wren", optional = true }
 
 # VM dependencies (lightweight for embedded/microcontrollers)
-quickjs = { version = "0.4", optional = true }
-micropython-sys = { version = "0.1", optional = true }  # MicroPython bindings
-wren = { version = "0.4", optional = true }
+quickjs = { version = "0.1", optional = true }
+rustpython = { version = "0.4", optional = true }  # RustPython bindings
+wren = { version = "0.1", optional = true }
 
 winit = { workspace = true }
 glam = { workspace = true }
@@ -35,7 +35,7 @@ serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"
 
 [features]
-default = ["wgpu"]  # No VMs by default - user chooses what they need
+default = []  # No VMs by default - user chooses what they need
 
 # Renderer backends (existing)
 wgpu = ["dep:kryon-wgpu"]
@@ -45,11 +45,11 @@ raylib = ["dep:kryon-raylib"]
 # VM backends (new) - enable only what you use
 lua-vm = ["mlua"]
 javascript-vm = ["dep:quickjs"]  # "dep:kryon-runtime-javascript" - to be added when crate is created
-micropython-vm = ["dep:micropython-sys"]  # "dep:kryon-runtime-micropython" - to be added when crate is created
+rustpython-vm = ["dep:rustpython"]  # "dep:kryon-runtime-rustpython" - to be added when crate is created
 wren-vm = ["dep:wren"]           # "dep:kryon-runtime-wren" - to be added when crate is created
 
 # Convenience presets for common combinations
 minimal-vms = ["lua-vm"]                                      # Microcontrollers
 embedded-vms = ["lua-vm", "javascript-vm"]                    # Embedded systems  
-desktop-vms = ["lua-vm", "javascript-vm", "micropython-vm"]   # Desktop apps
-all-vms = ["lua-vm", "javascript-vm", "micropython-vm", "wren-vm"]
+desktop-vms = ["lua-vm", "javascript-vm", "rustpython-vm"]   # Desktop apps
+all-vms = ["lua-vm", "javascript-vm", "rustpython-vm", "wren-vm"]

@@ -17,6 +17,8 @@ pub enum RendererBackend {
     Ratatui,
     #[cfg(feature = "raylib")]
     Raylib,
+    #[cfg(not(any(feature = "wgpu", feature = "ratatui", feature = "raylib")))]
+    None,
 }
 
 impl RendererBackend {
@@ -28,6 +30,8 @@ impl RendererBackend {
             RendererBackend::Ratatui => "ratatui",
             #[cfg(feature = "raylib")]
             RendererBackend::Raylib => "raylib",
+            #[cfg(not(any(feature = "wgpu", feature = "ratatui", feature = "raylib")))]
+            RendererBackend::None => "none",
         }
     }
     
@@ -42,6 +46,9 @@ impl RendererBackend {
 
         #[cfg(feature = "raylib")]
         backends.push(RendererBackend::Raylib);
+        
+        #[cfg(not(any(feature = "wgpu", feature = "ratatui", feature = "raylib")))]
+        backends.push(RendererBackend::None);
         
         backends
     }
