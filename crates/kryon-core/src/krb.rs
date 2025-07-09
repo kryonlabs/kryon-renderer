@@ -1,5 +1,5 @@
 // crates/kryon-core/src/krb.rs
-use crate::{Element, ElementId, ElementType, PropertyValue, Result, KryonError, TextAlignment, Style, CursorType, InteractionState, EventType}; 
+use crate::{Element, ElementId, ElementType, PropertyValue, Result, KryonError, TextAlignment, Style, CursorType, InteractionState, EventType, TransformData, TransformType, TransformProperty, TransformPropertyType, CSSUnitValue, CSSUnit}; 
 use std::collections::HashMap;
 use glam::{Vec2, Vec4};
 
@@ -14,6 +14,7 @@ pub struct KRBFile {
     pub scripts: Vec<ScriptEntry>,
     pub template_variables: Vec<TemplateVariable>,
     pub template_bindings: Vec<TemplateBinding>,
+    pub transforms: Vec<TransformData>,
 }
 
 #[derive(Debug)]
@@ -29,6 +30,7 @@ pub struct KRBHeader {
     pub resource_count: u16,
     pub template_variable_count: u16,
     pub template_binding_count: u16,
+    pub transform_count: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +84,7 @@ impl KRBParser {
         let scripts = self.parse_script_table(&header, &strings)?;
         let template_variables = self.parse_template_variables(&header, &strings)?;
         let template_bindings = self.parse_template_bindings(&header, &strings)?;
+        let transforms = self.parse_transforms(&header)?;
         
         // Apply style-based layout flags to elements
         self.apply_style_layout_flags(&mut elements, &styles)?;
@@ -105,11 +108,12 @@ impl KRBParser {
             scripts,
             template_variables,
             template_bindings,
+            transforms,
         })
     }
     
     fn parse_style_table(&mut self, header: &KRBHeader, strings: &[String]) -> Result<HashMap<u8, Style>> {
-        let style_offset = self.read_u32_at(30) as usize;
+        let style_offset = self.read_u32_at(32) as usize;
         let mut styles = HashMap::new();
         
         eprintln!("[STYLE] Parsing {} styles from offset 0x{:X}", header.style_count, style_offset);
@@ -406,7 +410,7 @@ impl KRBParser {
     }
 
     fn parse_header(&mut self) -> Result<KRBHeader> {
-        if self.data.len() < 66 {
+        if self.data.len() < 68 {
             return Err(KryonError::InvalidKRB("File too small".to_string()));
         }
         
@@ -425,11 +429,12 @@ impl KRBParser {
             resource_count: self.read_u16_at(20),
             template_variable_count: self.read_u16_at(22),
             template_binding_count: self.read_u16_at(24),
+            transform_count: self.read_u16_at(26),
         })
     }
     
     fn parse_string_table(&mut self, header: &KRBHeader) -> Result<Vec<String>> {
-        let string_offset = self.read_u32_at(46) as usize;
+        let string_offset = self.read_u32_at(48) as usize;
         let mut strings = Vec::new();
         
         self.position = string_offset;
@@ -446,7 +451,7 @@ impl KRBParser {
     }
     
     fn parse_element_tree(&mut self, header: &KRBHeader, strings: &[String]) -> Result<HashMap<u32, Element>> {
-        let element_offset = self.read_u32_at(26) as usize;
+        let element_offset = self.read_u32_at(28) as usize;
         let mut elements = HashMap::new();
         
         self.position = element_offset;
@@ -915,6 +920,18 @@ impl KRBParser {
                     eprintln!("[PROP] Position: '{}'", position);
                 }
             }
+            0x16 => { // Transform
+                // For now, we'll parse transform data as a simple index into the transforms array
+                // In a full implementation, this would reference the transform data parsed earlier
+                let transform_index = self.read_u8() as usize;
+                element.custom_properties.insert("transform_index".to_string(), PropertyValue::Int(transform_index as i32));
+                eprintln!("[PROP] Transform: index={}", transform_index);
+                
+                // Skip remaining bytes if any
+                for _ in 1..size {
+                    self.read_u8();
+                }
+            }
             _ => {
                 eprintln!("[PROP] Unknown property 0x{:02X}, skipping {} bytes...", property_id, size);
                 // Skip unknown property using size field
@@ -1043,7 +1060,7 @@ impl KRBParser {
     }
     
     fn parse_resource_table(&mut self, header: &KRBHeader) -> Result<Vec<String>> {
-        let resource_offset = self.read_u32_at(50) as usize;
+        let resource_offset = self.read_u32_at(52) as usize;
         let mut resources = Vec::new();
         
         self.position = resource_offset;
@@ -1060,7 +1077,7 @@ impl KRBParser {
     }
     
     fn parse_script_table(&mut self, header: &KRBHeader, strings: &[String]) -> Result<Vec<ScriptEntry>> {
-        let script_offset = self.read_u32_at(42) as usize;
+        let script_offset = self.read_u32_at(44) as usize;
         let mut scripts = Vec::new();
         
         self.position = script_offset;
@@ -1119,7 +1136,7 @@ impl KRBParser {
     }
     
     fn parse_template_variables(&mut self, header: &KRBHeader, strings: &[String]) -> Result<Vec<TemplateVariable>> {
-        let template_var_offset = self.read_u32_at(54) as usize;
+        let template_var_offset = self.read_u32_at(56) as usize;
         let mut template_variables = Vec::new();
         
         println!("PARSE: template_variable_count = {}, offset = 0x{:X}", header.template_variable_count, template_var_offset);
@@ -1157,7 +1174,7 @@ impl KRBParser {
     }
     
     fn parse_template_bindings(&mut self, header: &KRBHeader, strings: &[String]) -> Result<Vec<TemplateBinding>> {
-        let template_binding_offset = self.read_u32_at(58) as usize;
+        let template_binding_offset = self.read_u32_at(60) as usize;
         let mut template_bindings = Vec::new();
         
         println!("PARSE: template_binding_count = {}, offset = 0x{:X}", header.template_binding_count, template_binding_offset);
@@ -1193,6 +1210,113 @@ impl KRBParser {
         }
         
         Ok(template_bindings)
+    }
+    
+    fn parse_transforms(&mut self, header: &KRBHeader) -> Result<Vec<TransformData>> {
+        let transform_offset = self.read_u32_at(64) as usize;
+        let mut transforms = Vec::new();
+        
+        println!("PARSE: transform_count = {}, offset = 0x{:X}", header.transform_count, transform_offset);
+        
+        self.position = transform_offset;
+        
+        for i in 0..header.transform_count {
+            let transform_type = self.read_u8();
+            let property_count = self.read_u8();
+            
+            let transform_type_enum = match transform_type {
+                0x01 => TransformType::Transform2D,
+                0x02 => TransformType::Transform3D,
+                0x03 => TransformType::Matrix2D,
+                0x04 => TransformType::Matrix3D,
+                _ => TransformType::Transform2D, // Default fallback
+            };
+            
+            let mut properties = Vec::new();
+            for j in 0..property_count {
+                let property_type = self.read_u8();
+                let value_type = self.read_u8();
+                let size = self.read_u8();
+                
+                let property_type_enum = match property_type {
+                    0x01 => TransformPropertyType::Scale,
+                    0x02 => TransformPropertyType::ScaleX,
+                    0x03 => TransformPropertyType::ScaleY,
+                    0x04 => TransformPropertyType::TranslateX,
+                    0x05 => TransformPropertyType::TranslateY,
+                    0x06 => TransformPropertyType::Rotate,
+                    0x07 => TransformPropertyType::SkewX,
+                    0x08 => TransformPropertyType::SkewY,
+                    0x09 => TransformPropertyType::ScaleZ,
+                    0x0A => TransformPropertyType::TranslateZ,
+                    0x0B => TransformPropertyType::RotateX,
+                    0x0C => TransformPropertyType::RotateY,
+                    0x0D => TransformPropertyType::RotateZ,
+                    0x0E => TransformPropertyType::Perspective,
+                    0x0F => TransformPropertyType::Matrix,
+                    _ => TransformPropertyType::Scale, // Default fallback
+                };
+                
+                // Parse the value based on value_type
+                let css_unit_value = match value_type {
+                    0x19 => { // CSSUnit
+                        if size >= 9 { // 8 bytes for f64 + 1 byte for unit
+                            let value_bytes = [self.read_u8(), self.read_u8(), self.read_u8(), self.read_u8(),
+                                             self.read_u8(), self.read_u8(), self.read_u8(), self.read_u8()];
+                            let value = f64::from_le_bytes(value_bytes);
+                            let unit_byte = self.read_u8();
+                            
+                            let unit = match unit_byte {
+                                0x01 => CSSUnit::Pixels,
+                                0x02 => CSSUnit::Em,
+                                0x03 => CSSUnit::Rem,
+                                0x04 => CSSUnit::ViewportWidth,
+                                0x05 => CSSUnit::ViewportHeight,
+                                0x06 => CSSUnit::Percentage,
+                                0x07 => CSSUnit::Degrees,
+                                0x08 => CSSUnit::Radians,
+                                0x09 => CSSUnit::Turns,
+                                0x0A => CSSUnit::Number,
+                                _ => CSSUnit::Number, // Default fallback
+                            };
+                            
+                            CSSUnitValue { value, unit }
+                        } else {
+                            // Skip malformed data
+                            for _ in 0..size {
+                                self.read_u8();
+                            }
+                            continue;
+                        }
+                    }
+                    _ => {
+                        // Skip unknown value types
+                        for _ in 0..size {
+                            self.read_u8();
+                        }
+                        continue;
+                    }
+                };
+                
+                properties.push(TransformProperty {
+                    property_type: property_type_enum,
+                    value: css_unit_value,
+                });
+                
+                println!("PARSE: transform[{}].property[{}]: type={:?}, value={:?}", 
+                    i, j, property_type_enum, properties.last().unwrap().value);
+            }
+            
+            transforms.push(TransformData {
+                transform_type: transform_type_enum,
+                properties,
+            });
+            
+            println!("PARSE: transform[{}]: type={:?}, properties={}", 
+                i, transform_type_enum, transforms.last().unwrap().properties.len());
+        }
+        
+        Ok(transforms)
     }
     
     fn create_default_app_wrapper(elements: &mut HashMap<ElementId, Element>) -> Option<ElementId> {
@@ -1440,8 +1564,8 @@ pub fn load_krb_file(path: &str) -> Result<KRBFile> {
     
     // DEBUG: Print everything we parsed
     eprintln!("=== KRB FILE DEBUG ===");
-    eprintln!("Header: element_count={}, style_count={}, string_count={}", 
-        krb_file.header.element_count, krb_file.header.style_count, krb_file.header.string_count);
+    eprintln!("Header: element_count={}, style_count={}, string_count={}, transform_count={}", 
+        krb_file.header.element_count, krb_file.header.style_count, krb_file.header.string_count, krb_file.header.transform_count);
     
     // Add explicit style debugging
     if krb_file.header.style_count == 0 {
@@ -1463,6 +1587,14 @@ pub fn load_krb_file(path: &str) -> Result<KRBFile> {
             element.position.x, element.position.y,
             element.size.x, element.size.y,
             element.children.len(), element.text);
+    }
+    
+    eprintln!("Transforms ({}):", krb_file.transforms.len());
+    for (i, transform) in krb_file.transforms.iter().enumerate() {
+        eprintln!("  [{}]: type={:?}, properties={}", i, transform.transform_type, transform.properties.len());
+        for (j, prop) in transform.properties.iter().enumerate() {
+            eprintln!("    [{}]: {:?} = {:?}", j, prop.property_type, prop.value);
+        }
     }
     
     eprintln!("Root element ID: {:?}", krb_file.root_element_id);

@@ -5,6 +5,7 @@ use kryon_render::{
 use kryon_layout::LayoutResult;
 use glam::{Vec2, Vec4, Mat4};
 use winit::window::Window;
+use kryon_core::{TransformData, TransformPropertyType, CSSUnit, CSSUnitValue};
 
 pub mod shaders;
 pub mod vertex;
@@ -445,6 +446,7 @@ impl WgpuRenderer {
                 border_radius,
                 border_width,
                 border_color,
+                transform,
             } = command {
                 // Generate vertices for rounded rectangle
                 let rect_vertices = generate_rounded_rect_vertices(
@@ -456,8 +458,15 @@ impl WgpuRenderer {
                     *border_color,
                 );
                 
+                // Apply transform if present
+                let transformed_vertices = if let Some(transform_data) = transform {
+                    apply_transform_to_vertices(rect_vertices, transform_data)
+                } else {
+                    rect_vertices
+                };
+                
                 // Add vertices and indices
-                for vertex in rect_vertices {
+                for vertex in transformed_vertices {
                     vertices.push(vertex);
                 }
                 
@@ -530,14 +539,26 @@ impl WgpuRenderer {
                 alignment,
                 max_width,
                 max_height: _,
+                transform,
             } = command {
+                // Apply transform to text position if present
+                let final_position = if let Some(transform_data) = transform {
+                    let (scale, rotation, translation) = extract_transform_values(transform_data);
+                    let transform_matrix = create_transform_matrix(scale, rotation, translation);
+                    apply_transform_to_position(*position, &transform_matrix)
+                } else {
+                    *position
+                };
+                
+                // For now, use the basic render_text method
+                // TODO: Implement proper transform support in text renderer
                 self.text_renderer.render_text(
                     &mut context.encoder,
                     &context.view,
                     &self.text_pipeline,
                     &self.view_proj_bind_group,
                     text,
-                    *position,
+                    final_position,
                     *font_size,
                     *color,
                     *alignment,
@@ -553,7 +574,100 @@ impl WgpuRenderer {
         _context: &mut WgpuRenderContext,
         _commands: &[&RenderCommand],
     ) -> RenderResult<()> {
-        // TODO: Implement image rendering
+        // TODO: Implement image rendering with transform support
+        // When implementing, handle transform field in RenderCommand::DrawImage
         Ok(())
     }
+}
+
+/// Extract transform values from TransformData
+fn extract_transform_values(transform: &TransformData) -> (Vec2, f32, Vec2) {
+    let mut scale = Vec2::new(1.0, 1.0);
+    let mut rotation = 0.0f32;
+    let mut translation = Vec2::new(0.0, 0.0);
+    
+    for property in &transform.properties {
+        match property.property_type {
+            TransformPropertyType::Scale => {
+                let value = css_unit_to_pixels(&property.value);
+                scale = Vec2::new(value, value);
+            }
+            TransformPropertyType::ScaleX => {
+                scale.x = css_unit_to_pixels(&property.value);
+            }
+            TransformPropertyType::ScaleY => {
+                scale.y = css_unit_to_pixels(&property.value);
+            }
+            TransformPropertyType::TranslateX => {
+                translation.x = css_unit_to_pixels(&property.value);
+            }
+            TransformPropertyType::TranslateY => {
+                translation.y = css_unit_to_pixels(&property.value);
+            }
+            TransformPropertyType::Rotate => {
+                rotation = css_unit_to_radians(&property.value);
+            }
+            _ => {
+                eprintln!("[WGPU_TRANSFORM] Unsupported transform property: {:?}", property.property_type);
+            }
+        }
+    }
+    
+    (scale, rotation, translation)
+}
+
+/// Convert CSS unit value to pixels (simplified)
+fn css_unit_to_pixels(unit_value: &CSSUnitValue) -> f32 {
+    match unit_value.unit {
+        CSSUnit::Pixels => unit_value.value as f32,
+        CSSUnit::Number => unit_value.value as f32,
+        CSSUnit::Em => unit_value.value as f32 * 16.0, // Assume 16px base
+        CSSUnit::Rem => unit_value.value as f32 * 16.0, // Assume 16px base
+        CSSUnit::Percentage => unit_value.value as f32 / 100.0,
+        _ => {
+            eprintln!("[WGPU_TRANSFORM] Unsupported CSS unit for size: {:?}", unit_value.unit);
+            unit_value.value as f32
+        }
+    }
+}
+
+/// Convert CSS unit value to radians for rotation
+fn css_unit_to_radians(unit_value: &CSSUnitValue) -> f32 {
+    match unit_value.unit {
+        CSSUnit::Degrees => unit_value.value as f32 * std::f32::consts::PI / 180.0,
+        CSSUnit::Radians => unit_value.value as f32,
+        CSSUnit::Turns => unit_value.value as f32 * 2.0 * std::f32::consts::PI,
+        _ => {
+            eprintln!("[WGPU_TRANSFORM] Unsupported CSS unit for rotation: {:?}", unit_value.unit);
+            unit_value.value as f32
+        }
+    }
+}
+
+/// Create a transformation matrix for WGPU
+fn create_transform_matrix(scale: Vec2, rotation: f32, translation: Vec2) -> Mat4 {
+    let scale_matrix = Mat4::from_scale(scale.extend(1.0));
+    let rotation_matrix = Mat4::from_rotation_z(rotation);
+    let translation_matrix = Mat4::from_translation(translation.extend(0.0));
+    
+    translation_matrix * rotation_matrix * scale_matrix
+}
+
+/// Apply transform to position using transformation matrix
+fn apply_transform_to_position(position: Vec2, transform_matrix: &Mat4) -> Vec2 {
+    let transformed = transform_matrix.transform_point3(position.extend(0.0));
+    Vec2::new(transformed.x, transformed.y)
+}
+
+/// Apply transform to vertices using transformation matrix
+fn apply_transform_to_vertices(vertices: Vec<RectVertex>, transform_data: &TransformData) -> Vec<RectVertex> {
+    let (scale, rotation, translation) = extract_transform_values(transform_data);
+    let transform_matrix = create_transform_matrix(scale, rotation, translation);
+    
+    vertices.into_iter().map(|mut vertex| {
+        let transformed = transform_matrix.transform_point3(Vec2::new(vertex.position[0], vertex.position[1]).extend(0.0));
+        vertex.position[0] = transformed.x;
+        vertex.position[1] = transformed.y;
+        vertex
+    }).collect()
 }

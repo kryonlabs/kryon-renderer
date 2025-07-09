@@ -82,8 +82,9 @@ fn render_commands_to_frame(commands: &[RenderCommand], frame: &mut Frame, app_c
 
     for command in commands {
         match command {
-            RenderCommand::DrawRect { position, size, color, border_width, border_color, .. } => {
-                if let Some(area) = translate_rect(*position, *size, app_canvas_size, terminal_area) {
+            RenderCommand::DrawRect { position, size, color, border_width, border_color, transform, .. } => {
+                let (final_position, final_size) = apply_transform_ratatui(*position, *size, transform);
+                if let Some(area) = translate_rect(final_position, final_size, app_canvas_size, terminal_area) {
                     let mut block = Block::default().style(Style::default().bg(vec4_to_ratatui_color(*color)));
                     if *border_width > 0.0 {
                         block = block.borders(ratatui::widgets::Borders::ALL)
@@ -93,11 +94,12 @@ fn render_commands_to_frame(commands: &[RenderCommand], frame: &mut Frame, app_c
                     frame.render_widget(block, area);
                 }
             }
-            RenderCommand::DrawText { position, text, alignment, color, max_width, .. } => {
+            RenderCommand::DrawText { position, text, alignment, color, max_width, transform, .. } => {
                 let text_width = max_width.unwrap_or(text.len() as f32 * 8.0);
                 let text_size = Vec2::new(text_width, 16.0); 
 
-                if let Some(area) = translate_rect(*position, text_size, app_canvas_size, terminal_area) {
+                let (final_position, final_size) = apply_transform_ratatui(*position, text_size, transform);
+                if let Some(area) = translate_rect(final_position, final_size, app_canvas_size, terminal_area) {
                     let paragraph = Paragraph::new(text.as_str())
                         .style(Style::default().fg(vec4_to_ratatui_color(*color)))
                         .alignment(match alignment {
@@ -144,4 +146,61 @@ fn translate_rect(source_pos: Vec2, source_size: Vec2, app_canvas_size: Vec2, te
 fn vec4_to_ratatui_color(color: Vec4) -> Color {
     if color.w < 0.1 { return Color::Reset; }
     Color::Rgb((color.x * 255.0) as u8, (color.y * 255.0) as u8, (color.z * 255.0) as u8)
+}
+
+/// Apply basic transform to position and size for ratatui (text-based rendering)
+/// Note: ratatui has limited transform capabilities, so we only handle basic translation and scaling
+fn apply_transform_ratatui(position: Vec2, size: Vec2, transform: &Option<kryon_core::TransformData>) -> (Vec2, Vec2) {
+    let Some(transform_data) = transform else {
+        return (position, size);
+    };
+    
+    let mut final_position = position;
+    let mut final_size = size;
+    
+    // Apply transform properties
+    for property in &transform_data.properties {
+        match property.property_type {
+            kryon_core::TransformPropertyType::Scale => {
+                let scale_value = css_unit_to_value(&property.value);
+                final_size.x *= scale_value;
+                final_size.y *= scale_value;
+            }
+            kryon_core::TransformPropertyType::ScaleX => {
+                let scale_value = css_unit_to_value(&property.value);
+                final_size.x *= scale_value;
+            }
+            kryon_core::TransformPropertyType::ScaleY => {
+                let scale_value = css_unit_to_value(&property.value);
+                final_size.y *= scale_value;
+            }
+            kryon_core::TransformPropertyType::TranslateX => {
+                let translate_value = css_unit_to_value(&property.value);
+                final_position.x += translate_value;
+            }
+            kryon_core::TransformPropertyType::TranslateY => {
+                let translate_value = css_unit_to_value(&property.value);
+                final_position.y += translate_value;
+            }
+            // Note: Rotation and skew are not well-supported in text-based rendering
+            // We'll ignore them for now
+            _ => {
+                // Ignore unsupported transform properties in text-based rendering
+            }
+        }
+    }
+    
+    (final_position, final_size)
+}
+
+/// Convert CSS unit value to a simple float value for ratatui
+fn css_unit_to_value(unit_value: &kryon_core::CSSUnitValue) -> f32 {
+    match unit_value.unit {
+        kryon_core::CSSUnit::Pixels => unit_value.value as f32,
+        kryon_core::CSSUnit::Number => unit_value.value as f32,
+        kryon_core::CSSUnit::Em => unit_value.value as f32 * 16.0, // Assume 16px base
+        kryon_core::CSSUnit::Rem => unit_value.value as f32 * 16.0, // Assume 16px base
+        kryon_core::CSSUnit::Percentage => unit_value.value as f32 / 100.0,
+        _ => unit_value.value as f32, // Default fallback
+    }
 }

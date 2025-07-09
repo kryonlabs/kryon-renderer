@@ -2,7 +2,7 @@ use glam::{Vec2, Vec4};
 use std::collections::HashMap;
 // use tracing::info; // No longer needed
 
-use kryon_core::{Element, ElementId, ElementType, PropertyValue, StyleComputer, TextAlignment};
+use kryon_core::{Element, ElementId, ElementType, PropertyValue, StyleComputer, TextAlignment, TransformData};
 use kryon_layout::LayoutResult;
 
 pub mod events;
@@ -53,6 +53,7 @@ pub enum RenderCommand {
         border_radius: f32,
         border_width: f32,
         border_color: Vec4,
+        transform: Option<TransformData>,
     },
     DrawText {
         position: Vec2,
@@ -62,12 +63,14 @@ pub enum RenderCommand {
         alignment: TextAlignment,
         max_width: Option<f32>,
         max_height: Option<f32>,
+        transform: Option<TransformData>,
     },
     DrawImage {
         position: Vec2,
         size: Vec2,
         source: String,
         opacity: f32,
+        transform: Option<TransformData>,
     },
     SetClip {
         position: Vec2,
@@ -194,6 +197,15 @@ impl<R: CommandRenderer> ElementRenderer<R> {
         let mut border_color = style.border_color;
         border_color.w *= element.opacity;
 
+        // Check if element has transform data
+        let transform = element.custom_properties.get("transform_index")
+            .and_then(|v| v.as_int())
+            .and_then(|index| {
+                // TODO: Get transform data from KRB file transforms array
+                // For now, return None until we have access to the transforms
+                None
+            });
+        
         if bg_color.w > 0.0 || border_width > 0.0 {
             commands.push(RenderCommand::DrawRect {
                 position,
@@ -202,6 +214,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                 border_radius: style.border_radius,
                 border_width,
                 border_color,
+                transform: transform.clone(),
             });
         }
 
@@ -223,6 +236,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                     alignment: element.text_alignment,
                     max_width: Some(size.x), // The max width is the element's full width.
                     max_height: Some(size.y), // The max height is the element's full height.
+                    transform: transform.clone(),
                 });
             }
         }
@@ -236,6 +250,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                         size,
                         source: image_source.clone(),
                         opacity: element.opacity,
+                        transform: transform.clone(),
                     });
                 }
             }

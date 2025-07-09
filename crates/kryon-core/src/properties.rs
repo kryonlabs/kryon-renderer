@@ -10,6 +10,77 @@ pub enum PropertyValue {
     Bool(bool),
     Color(Vec4),
     Resource(String),
+    Transform(TransformData),
+    CSSUnit(CSSUnitValue),
+}
+
+#[derive(Debug, Clone)]
+pub struct TransformData {
+    pub transform_type: TransformType,
+    pub properties: Vec<TransformProperty>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransformType {
+    Transform2D = 0x01,
+    Transform3D = 0x02,
+    Matrix2D = 0x03,
+    Matrix3D = 0x04,
+}
+
+#[derive(Debug, Clone)]
+pub struct TransformProperty {
+    pub property_type: TransformPropertyType,
+    pub value: CSSUnitValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransformPropertyType {
+    // 2D Transform properties
+    Scale = 0x01,
+    ScaleX = 0x02,
+    ScaleY = 0x03,
+    TranslateX = 0x04,
+    TranslateY = 0x05,
+    Rotate = 0x06,
+    SkewX = 0x07,
+    SkewY = 0x08,
+    
+    // 3D Transform properties
+    ScaleZ = 0x09,
+    TranslateZ = 0x0A,
+    RotateX = 0x0B,
+    RotateY = 0x0C,
+    RotateZ = 0x0D,
+    Perspective = 0x0E,
+    
+    // Matrix properties
+    Matrix = 0x0F,
+}
+
+#[derive(Debug, Clone)]
+pub struct CSSUnitValue {
+    pub value: f64,
+    pub unit: CSSUnit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CSSUnit {
+    // Size units
+    Pixels = 0x01,
+    Em = 0x02,
+    Rem = 0x03,
+    ViewportWidth = 0x04,
+    ViewportHeight = 0x05,
+    Percentage = 0x06,
+    
+    // Angle units
+    Degrees = 0x07,
+    Radians = 0x08,
+    Turns = 0x09,
+    
+    // Unitless (for scale, matrix values)
+    Number = 0x0A,
 }
 
 impl PropertyValue {
@@ -62,6 +133,20 @@ impl PropertyValue {
     pub fn as_color(&self) -> Option<Vec4> {
         match self {
             PropertyValue::Color(c) => Some(*c),
+            _ => None,
+        }
+    }
+    
+    pub fn as_transform(&self) -> Option<&TransformData> {
+        match self {
+            PropertyValue::Transform(t) => Some(t),
+            _ => None,
+        }
+    }
+    
+    pub fn as_css_unit(&self) -> Option<&CSSUnitValue> {
+        match self {
+            PropertyValue::CSSUnit(u) => Some(u),
             _ => None,
         }
     }

@@ -2,7 +2,7 @@
 use kryon_render::{
     Renderer, CommandRenderer, RenderCommand, RenderResult, InputEvent, MouseButton, KeyCode, KeyModifiers
 };
-use kryon_core::CursorType;
+use kryon_core::{CursorType, TransformData, TransformPropertyType, CSSUnit};
 use kryon_layout::LayoutResult;
 use glam::{Vec2, Vec4};
 use raylib::prelude::*;
@@ -282,23 +282,68 @@ impl RaylibRenderer {
                 border_radius: _,
                 border_width,
                 border_color,
+                transform,
             } => {
                 let rect = Rectangle::new(position.x, position.y, size.x, size.y);
                 let raylib_color = vec4_to_raylib_color(*color);
                 
-                // Draw filled rectangle
-                if color.w > 0.0 {
-                    d.draw_rectangle_rec(rect, raylib_color);
-                }
-                
-                // Draw border
-                if *border_width > 0.0 {
-                    let border_raylib_color = vec4_to_raylib_color(*border_color);
-                    d.draw_rectangle_lines_ex(
-                        rect, 
-                        *border_width, 
-                        border_raylib_color
-                    );
+                // Apply transform if present
+                if let Some(transform_data) = transform {
+                    let (scale, rotation, translation) = extract_transform_values(transform_data);
+                    
+                    // Apply transformations using raylib's transformation matrix
+                    let center_x = position.x + size.x / 2.0;
+                    let center_y = position.y + size.y / 2.0;
+                    
+                    // Create transformation matrix
+                    let transform_matrix = create_transform_matrix(scale, rotation, translation, center_x, center_y);
+                    
+                    // Draw with transform
+                    d.rl_push_matrix();
+                    d.rl_mult_matrixf(transform_matrix.as_ptr());
+                    
+                    // Draw filled rectangle (adjust position for center-based transform)
+                    if color.w > 0.0 {
+                        let transformed_rect = Rectangle::new(
+                            -size.x / 2.0,
+                            -size.y / 2.0,
+                            size.x,
+                            size.y
+                        );
+                        d.draw_rectangle_rec(transformed_rect, raylib_color);
+                    }
+                    
+                    // Draw border
+                    if *border_width > 0.0 {
+                        let border_raylib_color = vec4_to_raylib_color(*border_color);
+                        let transformed_rect = Rectangle::new(
+                            -size.x / 2.0,
+                            -size.y / 2.0,
+                            size.x,
+                            size.y
+                        );
+                        d.draw_rectangle_lines_ex(
+                            transformed_rect, 
+                            *border_width, 
+                            border_raylib_color
+                        );
+                    }
+                    
+                    d.rl_pop_matrix();
+                } else {
+                    // Draw without transform (original behavior)
+                    if color.w > 0.0 {
+                        d.draw_rectangle_rec(rect, raylib_color);
+                    }
+                    
+                    if *border_width > 0.0 {
+                        let border_raylib_color = vec4_to_raylib_color(*border_color);
+                        d.draw_rectangle_lines_ex(
+                            rect, 
+                            *border_width, 
+                            border_raylib_color
+                        );
+                    }
                 }
             }
             RenderCommand::DrawText {
@@ -309,6 +354,7 @@ impl RaylibRenderer {
                 alignment,
                 max_width,
                 max_height,
+                transform,
             } => {
                 let raylib_color = vec4_to_raylib_color(*color);
                 
@@ -336,19 +382,48 @@ impl RaylibRenderer {
                     },
                 };
                 
-                d.draw_text(
-                    text,
-                    text_x as i32,
-                    text_y as i32,
-                    *font_size as i32,
-                    raylib_color,
-                );
+                // Apply transform if present
+                if let Some(transform_data) = transform {
+                    let (scale, rotation, translation) = extract_transform_values(transform_data);
+                    
+                    // Apply transformations using raylib's transformation matrix
+                    let center_x = text_x + text_width / 2.0;
+                    let center_y = text_y + text_height / 2.0;
+                    
+                    // Create transformation matrix
+                    let transform_matrix = create_transform_matrix(scale, rotation, translation, center_x, center_y);
+                    
+                    // Draw with transform
+                    d.rl_push_matrix();
+                    d.rl_mult_matrixf(transform_matrix.as_ptr());
+                    
+                    // Draw text (adjust position for center-based transform)
+                    d.draw_text(
+                        text,
+                        (-text_width / 2.0) as i32,
+                        (-text_height / 2.0) as i32,
+                        *font_size as i32,
+                        raylib_color,
+                    );
+                    
+                    d.rl_pop_matrix();
+                } else {
+                    // Draw without transform (original behavior)
+                    d.draw_text(
+                        text,
+                        text_x as i32,
+                        text_y as i32,
+                        *font_size as i32,
+                        raylib_color,
+                    );
+                }
             }
             RenderCommand::DrawImage {
                 position,
                 size,
                 source,
                 opacity,
+                transform,
             } => {
                 eprintln!("[RAYLIB] DrawImage match arm reached for: {}", source);
                 
@@ -359,14 +434,50 @@ impl RaylibRenderer {
                     let source_rect = Rectangle::new(0.0, 0.0, texture.width as f32, texture.height as f32);
                     let tint = Color::new(255, 255, 255, (*opacity * 255.0) as u8);
                     
-                    d.draw_texture_pro(
-                        texture,
-                        source_rect,
-                        dest_rect,
-                        Vector2::zero(),
-                        0.0, // rotation
-                        tint,
-                    );
+                    // Apply transform if present
+                    if let Some(transform_data) = transform {
+                        let (scale, rotation, translation) = extract_transform_values(transform_data);
+                        
+                        // Apply transformations using raylib's transformation matrix
+                        let center_x = position.x + size.x / 2.0;
+                        let center_y = position.y + size.y / 2.0;
+                        
+                        // Create transformation matrix
+                        let transform_matrix = create_transform_matrix(scale, rotation, translation, center_x, center_y);
+                        
+                        // Draw with transform
+                        d.rl_push_matrix();
+                        d.rl_mult_matrixf(transform_matrix.as_ptr());
+                        
+                        // Draw texture (adjust position for center-based transform)
+                        let transformed_dest = Rectangle::new(
+                            -size.x / 2.0,
+                            -size.y / 2.0,
+                            size.x,
+                            size.y
+                        );
+                        
+                        d.draw_texture_pro(
+                            texture,
+                            source_rect,
+                            transformed_dest,
+                            Vector2::zero(),
+                            0.0, // rotation (handled by matrix)
+                            tint,
+                        );
+                        
+                        d.rl_pop_matrix();
+                    } else {
+                        // Draw without transform (original behavior)
+                        d.draw_texture_pro(
+                            texture,
+                            source_rect,
+                            dest_rect,
+                            Vector2::zero(),
+                            0.0, // rotation
+                            tint,
+                        );
+                    }
                     
                     eprintln!("[RAYLIB] Drew texture: {} at ({:.1},{:.1}) size ({:.1},{:.1})", 
                         source, position.x, position.y, size.x, size.y);
@@ -455,6 +566,99 @@ fn vec4_to_raylib_color(color: Vec4) -> Color {
     let a = (color.w * 255.0) as u8;
 
     Color::new(r, g, b, a)
+}
+
+/// Extract transform values from TransformData
+fn extract_transform_values(transform: &TransformData) -> (Vec2, f32, Vec2) {
+    let mut scale = Vec2::new(1.0, 1.0);
+    let mut rotation = 0.0f32;
+    let mut translation = Vec2::new(0.0, 0.0);
+    
+    for property in &transform.properties {
+        match property.property_type {
+            TransformPropertyType::Scale => {
+                let value = css_unit_to_pixels(&property.value);
+                scale = Vec2::new(value, value);
+            }
+            TransformPropertyType::ScaleX => {
+                scale.x = css_unit_to_pixels(&property.value);
+            }
+            TransformPropertyType::ScaleY => {
+                scale.y = css_unit_to_pixels(&property.value);
+            }
+            TransformPropertyType::TranslateX => {
+                translation.x = css_unit_to_pixels(&property.value);
+            }
+            TransformPropertyType::TranslateY => {
+                translation.y = css_unit_to_pixels(&property.value);
+            }
+            TransformPropertyType::Rotate => {
+                rotation = css_unit_to_radians(&property.value);
+            }
+            // Add other transform properties as needed
+            _ => {
+                eprintln!("[RAYLIB_TRANSFORM] Unsupported transform property: {:?}", property.property_type);
+            }
+        }
+    }
+    
+    (scale, rotation, translation)
+}
+
+/// Convert CSS unit value to pixels (simplified)
+fn css_unit_to_pixels(unit_value: &kryon_core::CSSUnitValue) -> f32 {
+    match unit_value.unit {
+        CSSUnit::Pixels => unit_value.value as f32,
+        CSSUnit::Number => unit_value.value as f32,
+        CSSUnit::Em => unit_value.value as f32 * 16.0, // Assume 16px base
+        CSSUnit::Rem => unit_value.value as f32 * 16.0, // Assume 16px base
+        CSSUnit::Percentage => unit_value.value as f32 / 100.0,
+        _ => {
+            eprintln!("[RAYLIB_TRANSFORM] Unsupported CSS unit for size: {:?}", unit_value.unit);
+            unit_value.value as f32
+        }
+    }
+}
+
+/// Convert CSS unit value to radians for rotation
+fn css_unit_to_radians(unit_value: &kryon_core::CSSUnitValue) -> f32 {
+    match unit_value.unit {
+        CSSUnit::Degrees => unit_value.value as f32 * std::f32::consts::PI / 180.0,
+        CSSUnit::Radians => unit_value.value as f32,
+        CSSUnit::Turns => unit_value.value as f32 * 2.0 * std::f32::consts::PI,
+        _ => {
+            eprintln!("[RAYLIB_TRANSFORM] Unsupported CSS unit for rotation: {:?}", unit_value.unit);
+            unit_value.value as f32
+        }
+    }
+}
+
+/// Create a transformation matrix for raylib
+fn create_transform_matrix(scale: Vec2, rotation: f32, translation: Vec2, center_x: f32, center_y: f32) -> [f32; 16] {
+    let cos_r = rotation.cos();
+    let sin_r = rotation.sin();
+    
+    // Create a 4x4 transformation matrix
+    // Order: Translate to center, Scale, Rotate, Translate back, Apply translation
+    let mut matrix = [0.0f32; 16];
+    
+    // Initialize as identity matrix
+    matrix[0] = 1.0; // m00
+    matrix[5] = 1.0; // m11
+    matrix[10] = 1.0; // m22
+    matrix[15] = 1.0; // m33
+    
+    // Apply scale and rotation
+    matrix[0] = scale.x * cos_r;  // m00
+    matrix[1] = scale.x * sin_r;  // m01
+    matrix[4] = -scale.y * sin_r; // m10
+    matrix[5] = scale.y * cos_r;  // m11
+    
+    // Apply translation (move to center, then apply user translation)
+    matrix[12] = center_x + translation.x; // m30
+    matrix[13] = center_y + translation.y; // m31
+    
+    matrix
 }
 
 
