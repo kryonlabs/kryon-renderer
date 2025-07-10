@@ -34,7 +34,7 @@ pub struct KryonApp<R: CommandRenderer> {
     elements: HashMap<ElementId, Element>,
     
     // Systems
-    style_computer: StyleComputer, 
+    _style_computer: StyleComputer, 
     layout_engine: Box<dyn LayoutEngine>,
     renderer: ElementRenderer<R>,
     event_system: EventSystem,
@@ -81,7 +81,7 @@ impl<R: CommandRenderer> KryonApp<R> {
         let mut app = Self {
             krb_file,
             elements,
-            style_computer,
+            _style_computer: style_computer,
             layout_engine,
             renderer,
             event_system,

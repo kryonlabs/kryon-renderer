@@ -16,7 +16,7 @@ use ratatui::prelude::CrosstermBackend;
 
 // Kryon imports
 use kryon_core::load_krb_file; // Assuming you might want this for inspect
-use kryon_render::{CommandRenderer, InputEvent, Renderer}; // Keep Renderer for trait bounds
+use kryon_render::{InputEvent, Renderer}; // Keep Renderer for trait bounds
 use kryon_ratatui::RatatuiRenderer;
 use kryon_runtime::KryonApp;
 

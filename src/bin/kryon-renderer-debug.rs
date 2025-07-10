@@ -407,14 +407,14 @@ fn generate_detailed_output(krb_file: &kryon_core::KRBFile, args: &Args) -> Resu
 }
 
 #[derive(Debug)]
-struct ColorValue {
+struct _ColorValue {
     r: u8,
     g: u8, 
     b: u8,
     a: u8,
 }
 
-fn parse_color_value(color_str: &str) -> Result<ColorValue> {
+fn _parse_color_value(color_str: &str) -> Result<_ColorValue> {
     // Try to parse hex color format #RRGGBBAA or #RRGGBB
     if color_str.starts_with('#') && (color_str.len() == 7 || color_str.len() == 9) {
         let hex = &color_str[1..];
@@ -427,7 +427,7 @@ fn parse_color_value(color_str: &str) -> Result<ColorValue> {
             255
         };
         
-        Ok(ColorValue { r, g, b, a })
+        Ok(_ColorValue { r, g, b, a })
     } else {
         anyhow::bail!("Invalid color format: {}", color_str)
     }

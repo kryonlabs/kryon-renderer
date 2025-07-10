@@ -64,8 +64,8 @@ impl LayoutEngine for FlexboxLayoutEngine {
         
         if let Some(root_element) = elements.get(&root_id) {
             // Calculate scaling factor based on designed size vs actual viewport
-            // Use the root element's size as the design size (from .kry file)
-            let design_size = root_element.size;
+            // Use the root element's layout_size as the design size (from .kry file)
+            let design_size = root_element.layout_size.to_pixels(viewport_size);
             let scale_x = viewport_size.x / design_size.x;
             let scale_y = viewport_size.y / design_size.y;
             let scale_factor = scale_x.min(scale_y); // Use uniform scaling to maintain aspect ratio
@@ -91,7 +91,7 @@ impl LayoutEngine for FlexboxLayoutEngine {
 }
 
 impl FlexboxLayoutEngine {
-    fn layout_element(
+    fn _layout_element(
         &self,
         elements: &HashMap<ElementId, Element>,
         element_id: ElementId,
@@ -114,17 +114,26 @@ impl FlexboxLayoutEngine {
         scale_factor: f32,
         result: &mut LayoutResult,
     ) {
-        // Apply scaling to element size and position
+        // Get parent size for percentage calculations
+        let parent_size = Vec2::new(constraints.max_width, constraints.max_height);
+        
+        // Resolve layout size to pixels (handles percentages)
+        let resolved_size = element.layout_size.to_pixels(parent_size);
+        
+        // Apply scaling to resolved size and position
         let scaled_size = Vec2::new(
-            element.size.x * scale_factor,
-            element.size.y * scale_factor
-        );
-        let scaled_position = Vec2::new(
-            element.position.x * scale_factor,
-            element.position.y * scale_factor
+            resolved_size.x * scale_factor,
+            resolved_size.y * scale_factor
         );
         
-        // Calculate element size with scaling
+        // Resolve layout position to pixels (handles percentages)
+        let resolved_position = element.layout_position.to_pixels(parent_size);
+        let scaled_position = Vec2::new(
+            resolved_position.x * scale_factor,
+            resolved_position.y * scale_factor
+        );
+        
+        // Calculate element size with scaling and constraints
         let computed_size = self.compute_element_size_scaled(scaled_size, constraints);
         
         // Store computed size and scaled position
@@ -134,9 +143,10 @@ impl FlexboxLayoutEngine {
         
         if self.debug {
             debug!(
-                "Layout element {} (scale={:.3}): size={:?}, pos={:?}",
+                "Layout element {} (scale={:.3}): resolved_size={:?}, computed_size={:?}, pos={:?}",
                 element.id,
                 scale_factor,
+                resolved_size,
                 computed_size,
                 final_position
             );
@@ -152,8 +162,10 @@ impl FlexboxLayoutEngine {
         }
     }
     
-    fn compute_element_size(&self, element: &Element, constraints: ConstraintBox) -> Vec2 {
-        self.compute_element_size_scaled(element.size, constraints)
+    fn _compute_element_size(&self, element: &Element, constraints: ConstraintBox) -> Vec2 {
+        let parent_size = Vec2::new(constraints.max_width, constraints.max_height);
+        let resolved_size = element.layout_size.to_pixels(parent_size);
+        self.compute_element_size_scaled(resolved_size, constraints)
     }
     
     fn compute_element_size_scaled(&self, size: Vec2, constraints: ConstraintBox) -> Vec2 {
@@ -161,10 +173,10 @@ impl FlexboxLayoutEngine {
         let mut height = size.y;
         
         // Handle auto sizing
-        if width == 0.0 {
+        if width <= 0.0 {
             width = constraints.max_width;
         }
-        if height == 0.0 {
+        if height <= 0.0 {
             height = constraints.max_height;
         }
         
@@ -175,7 +187,7 @@ impl FlexboxLayoutEngine {
         Vec2::new(width, height)
     }
     
-    fn layout_children(
+    fn _layout_children(
         &self,
         elements: &HashMap<ElementId, Element>,
         _parent_id: ElementId,
@@ -226,7 +238,7 @@ impl FlexboxLayoutEngine {
         }
     }
     
-    fn layout_flex_children(
+    fn _layout_flex_children(
         &self,
         elements: &HashMap<ElementId, Element>,
         parent: &Element,
@@ -253,7 +265,7 @@ fn layout_flex_children_with_scale(
     eprintln!("[LAYOUT_FLEX_START] Parent={}, is_row={}, children_count={}, parent_offset={:?}",
         parent.id, is_row, parent.children.len(), parent_offset);
     let mut flex_items = Vec::new();
-    let mut total_flex_grow = 0.0;
+    let mut _total_flex_grow = 0.0;
     let mut used_space = 0.0;
     
     // Collect flex items and measure their initial sizes
@@ -261,12 +273,13 @@ fn layout_flex_children_with_scale(
         if let Some(child) = elements.get(&child_id) {
             // Check if child has absolute layout flag set
             let child_layout = LayoutFlags::from_bits(child.layout_flags);
-            if child_layout.direction == LayoutDirection::Absolute || child.position != Vec2::ZERO {
-                eprintln!("[LAYOUT_FLEX] Child {} has absolute positioning (layout={:?}, pos={:?}), skipping flex flow.", child.id, child_layout.direction, child.position);
+            let has_positioned_layout = !child.layout_position.is_zero();
+            if child_layout.direction == LayoutDirection::Absolute || has_positioned_layout {
+                eprintln!("[LAYOUT_FLEX] Child {} has absolute positioning (layout={:?}, pos={:?}), skipping flex flow.", child.id, child_layout.direction, child.layout_position);
                 let constraints = ConstraintBox {
-                    min_width: 0.0, max_width: f32::INFINITY,
-                    min_height: 0.0, max_height: f32::INFINITY,
-                    definite_width: false, definite_height: false,
+                    min_width: 0.0, max_width: parent_size.x,
+                    min_height: 0.0, max_height: parent_size.y,
+                    definite_width: true, definite_height: true,
                 };
                 // Lay it out directly, relative to the parent's final offset.
                 self.layout_element_with_scale(elements, child_id, child, constraints, parent_offset, scale_factor, result);
@@ -288,15 +301,16 @@ fn layout_flex_children_with_scale(
                 Vec2::new(text_width, text_height)
             } else if is_button_element {
                 // For buttons, first check if explicit size is set from styles
-                if child.size.x > 0.0 && child.size.y > 0.0 {
+                let resolved_size = child.layout_size.to_pixels(parent_size);
+                if resolved_size.x > 0.0 && resolved_size.y > 0.0 {
                     // Use explicit size from styles
-                    child.size
+                    resolved_size
                 } else {
                     // Fall back to text-based sizing for buttons without explicit sizes
                     let child_layout = LayoutFlags::from_bits(child.layout_flags);
-                    let button_width = if child.size.x > 0.0 {
+                    let button_width = if resolved_size.x > 0.0 {
                         // Use explicit width from styles
-                        child.size.x
+                        resolved_size.x
                     } else if child_layout.grow {
                         // Minimal width for buttons that need to grow to fill space
                         if !child.text.is_empty() {
@@ -313,9 +327,9 @@ fn layout_flex_children_with_scale(
                             80.0 // Default width for button with no text
                         }
                     };
-                    let button_height = if child.size.y > 0.0 {
+                    let button_height = if resolved_size.y > 0.0 {
                         // Use explicit height from styles
-                        child.size.y
+                        resolved_size.y
                     } else {
                         32.0 // Default height for buttons without explicit height
                     };
@@ -324,14 +338,15 @@ fn layout_flex_children_with_scale(
             } else {
                 // For other elements (containers, etc.)
                 let is_container = child.element_type == kryon_core::ElementType::Container;
+                let resolved_size = child.layout_size.to_pixels(parent_size);
                 
-                if child.size.x > 0.0 || child.size.y > 0.0 {
+                if resolved_size.x > 0.0 || resolved_size.y > 0.0 {
                     // Use explicit sizes if set
                     Vec2::new(
-                        if child.size.x > 0.0 { child.size.x } else { 
+                        if resolved_size.x > 0.0 { resolved_size.x } else { 
                             if is_container { parent_size.x } else { 100.0 }
                         },
-                        if child.size.y > 0.0 { child.size.y } else { 100.0 }
+                        if resolved_size.y > 0.0 { resolved_size.y } else { 100.0 }
                     )
                 } else {
                     // Default intrinsic sizes
@@ -363,94 +378,144 @@ fn layout_flex_children_with_scale(
             });
             
             used_space += flex_basis;
-            total_flex_grow += flex_grow;
+            _total_flex_grow += flex_grow;
         }
     }
     
-    // Distribute remaining space
+    // Handle flex wrap if enabled
     let container_main_size = if is_row { parent_size.x } else { parent_size.y };
-    let remaining_space = (container_main_size - used_space).max(0.0);
+    let gap = parent.gap; // Define gap early for use in wrap calculations
+    let mut flex_lines = Vec::new();
     
-    eprintln!("[FLEX_GROW_TOTAL] total_flex_grow={}, remaining_space={}, container_main_size={}, used_space={}", 
-        total_flex_grow, remaining_space, container_main_size, used_space);
-    
-    if remaining_space > 0.0 && total_flex_grow > 0.0 {
-        for item in &mut flex_items {
-            if item.flex_grow > 0.0 {
-                let grow_amount = (item.flex_grow / total_flex_grow) * remaining_space;
-                item.main_axis_size += grow_amount;
+    if layout.wrap && used_space > container_main_size {
+        eprintln!("[FLEX_WRAP] Wrapping enabled, used_space={}, container_size={}", used_space, container_main_size);
+        // Split items into lines that fit within container
+        let mut current_line = Vec::new();
+        let mut current_line_size = 0.0;
+        
+        for item in flex_items {
+            let item_size_with_gap = item.flex_basis + if current_line.is_empty() { 0.0 } else { gap };
+            
+            if current_line_size + item_size_with_gap > container_main_size && !current_line.is_empty() {
+                // Start new line
+                flex_lines.push(current_line);
+                current_line = Vec::new();
+                current_line_size = 0.0;
             }
+            
+            current_line_size += item_size_with_gap;
+            current_line.push(item);
         }
+        
+        if !current_line.is_empty() {
+            flex_lines.push(current_line);
+        }
+        
+        eprintln!("[FLEX_WRAP] Created {} lines", flex_lines.len());
+    } else {
+        // No wrapping - all items in single line
+        flex_lines.push(flex_items);
     }
     
-    // Position elements
-    // For center alignment with single child, center on main axis too
-    let mut current_position = if layout.alignment == LayoutAlignment::Center && flex_items.len() == 1 {
-        // Center the single item on main axis
-        (container_main_size - flex_items[0].main_axis_size) / 2.0
-    } else {
-        0.0
-    };
-    let gap = 0.0; // TODO: Add gap support
+    // Process each line separately
+    let mut cross_axis_position = 0.0;
     
-    eprintln!("[LAYOUT_FLEX] Positioning {} flex items, remaining_space={}, is_row={}, start_position={}", 
-        flex_items.len(), remaining_space, is_row, current_position);
-    
-    for (i, item) in flex_items.iter().enumerate() {
-        if let Some(child) = elements.get(&item.element_id) {
-            let cross_axis_pos = if is_row {
-                self.compute_cross_axis_position(item.cross_axis_size, parent_size.y, layout.alignment)
-            } else {
-                self.compute_cross_axis_position(item.cross_axis_size, parent_size.x, layout.alignment)
-            };
-            
-            let child_position = if is_row {
-                Vec2::new(current_position, cross_axis_pos)
-            } else {
-                Vec2::new(cross_axis_pos, current_position)
-            };
-            
-            eprintln!("[LAYOUT_FLEX] Child {}: main_axis={}, cross_axis={}, cross_axis_pos={}, relative_pos={:?}", 
-                child.id, current_position, item.cross_axis_size, cross_axis_pos, child_position);
-            
-            let child_size = if is_row {
-                Vec2::new(item.main_axis_size, item.cross_axis_size)
-            } else {
-                Vec2::new(item.cross_axis_size, item.main_axis_size)
-            };
-            
-            let child_constraints = ConstraintBox {
-                min_width: child_size.x,
-                max_width: child_size.x,
-                min_height: child_size.y,
-                max_height: child_size.y,
-                definite_width: true,
-                definite_height: true,
-            };
-            
-            // Update child position to be relative to parent
-            let mut updated_child = child.clone();
-            updated_child.position = child_position;
-            
-            self.layout_element_with_scale(
-                elements,
-                item.element_id,
-                &updated_child,
-                child_constraints,
-                parent_offset,
-                scale_factor,
-                result,
-            );
-            
-            current_position += item.main_axis_size;
-            if i < flex_items.len() - 1 {
-                current_position += gap;
+    for (line_index, mut line_items) in flex_lines.into_iter().enumerate() {
+        eprintln!("[FLEX_LINE] Processing line {} with {} items", line_index, line_items.len());
+        
+        // Calculate line metrics
+        let line_used_space: f32 = line_items.iter().map(|item| item.flex_basis).sum();
+        let line_total_flex_grow: f32 = line_items.iter().map(|item| item.flex_grow).sum();
+        let line_remaining_space = (container_main_size - line_used_space - (line_items.len() as f32 - 1.0) * gap).max(0.0);
+        
+        eprintln!("[FLEX_LINE] Line {}: used_space={}, remaining_space={}, total_flex_grow={}", 
+            line_index, line_used_space, line_remaining_space, line_total_flex_grow);
+        
+        // Distribute remaining space within this line
+        if line_remaining_space > 0.0 && line_total_flex_grow > 0.0 {
+            for item in &mut line_items {
+                if item.flex_grow > 0.0 {
+                    let grow_amount = (item.flex_grow / line_total_flex_grow) * line_remaining_space;
+                    item.main_axis_size += grow_amount;
+                }
             }
         }
+        
+        // Position elements within this line
+        let mut current_position = if layout.alignment == LayoutAlignment::Center && line_items.len() == 1 {
+            // Center the single item on main axis
+            (container_main_size - line_items[0].main_axis_size) / 2.0
+        } else {
+            0.0
+        };
+        
+        eprintln!("[LAYOUT_FLEX] Positioning {} flex items in line {}, is_row={}, start_position={}", 
+            line_items.len(), line_index, is_row, current_position);
+        
+        for (i, item) in line_items.iter().enumerate() {
+            if let Some(child) = elements.get(&item.element_id) {
+                let cross_axis_pos = if is_row {
+                    cross_axis_position + self.compute_cross_axis_position(item.cross_axis_size, parent_size.y, layout.alignment)
+                } else {
+                    cross_axis_position + self.compute_cross_axis_position(item.cross_axis_size, parent_size.x, layout.alignment)
+                };
+                
+                let child_position = if is_row {
+                    Vec2::new(current_position, cross_axis_pos)
+                } else {
+                    Vec2::new(cross_axis_pos, current_position)
+                };
+                
+                eprintln!("[LAYOUT_FLEX] Child {}: main_axis={}, cross_axis={}, cross_axis_pos={}, relative_pos={:?}", 
+                    child.id, current_position, item.cross_axis_size, cross_axis_pos, child_position);
+                
+                let child_size = if is_row {
+                    Vec2::new(item.main_axis_size, item.cross_axis_size)
+                } else {
+                    Vec2::new(item.cross_axis_size, item.main_axis_size)
+                };
+                
+                let child_constraints = ConstraintBox {
+                    min_width: child_size.x,
+                    max_width: child_size.x,
+                    min_height: child_size.y,
+                    max_height: child_size.y,
+                    definite_width: true,
+                    definite_height: true,
+                };
+                
+                // Pass child position through offset parameter
+                let child_final_offset = parent_offset + child_position;
+                
+                self.layout_element_with_scale(
+                    elements,
+                    item.element_id,
+                    child,
+                    child_constraints,
+                    child_final_offset,
+                    scale_factor,
+                    result,
+                );
+                
+                current_position += item.main_axis_size;
+                if i < line_items.len() - 1 {
+                    current_position += gap;
+                }
+            }
+        }
+        
+        // Calculate line height and move to next line
+        let line_height = line_items.iter()
+            .map(|item| item.cross_axis_size)
+            .fold(0.0, f32::max);
+        cross_axis_position += line_height;
+        
+        eprintln!("[FLEX_LINE] Line {} completed, line_height={}, next_cross_axis_pos={}", 
+            line_index, line_height, cross_axis_position);
     }
 }
     
-    fn layout_absolute_children(
+    fn _layout_absolute_children(
         &self,
         elements: &HashMap<ElementId, Element>,
         parent: &Element,
@@ -472,23 +537,29 @@ fn layout_flex_children_with_scale(
         
         for &child_id in &parent.children {
             if let Some(child) = elements.get(&child_id) {
-                eprintln!("[LAYOUT_ABSOLUTE] Child {}: pos=({}, {}), size=({}, {})", 
-                    child.id, child.position.x, child.position.y, child.size.x, child.size.y);
+                // Get parent's computed size for percentage calculations
+                let parent_size = result.computed_sizes.get(&(elements.iter()
+                    .find(|(_, elem)| elem.children.contains(&child_id))
+                    .map(|(id, _)| *id)
+                    .unwrap_or(0))).cloned().unwrap_or(Vec2::new(800.0, 600.0));
+                
+                eprintln!("[LAYOUT_ABSOLUTE] Child {}: layout_pos={:?}, layout_size={:?}", 
+                    child.id, child.layout_position, child.layout_size);
                 
                 let constraints = ConstraintBox {
                     min_width: 0.0,
-                    max_width: f32::INFINITY,
+                    max_width: parent_size.x,
                     min_height: 0.0,
-                    max_height: f32::INFINITY,
-                    definite_width: false,
-                    definite_height: false,
+                    max_height: parent_size.y,
+                    definite_width: true,
+                    definite_height: true,
                 };
                 
-                // For absolute positioning, use child's position directly relative to parent
-                // All content panels should overlap at the same position
+                // For absolute positioning, resolve layout position to pixels
+                let resolved_position = child.layout_position.to_pixels(parent_size);
                 let absolute_offset = parent_offset + Vec2::new(
-                    child.position.x * scale_factor,
-                    child.position.y * scale_factor
+                    resolved_position.x * scale_factor,
+                    resolved_position.y * scale_factor
                 );
                 
                 eprintln!("[LAYOUT_ABSOLUTE] Final offset for {}: {:?} (parent_offset={:?}, child_pos={:?})", 

@@ -17,22 +17,43 @@ pub struct Style {
 /// This is the "single source of truth" for the renderer.
 #[derive(Debug, Clone, Copy)]
 pub struct ComputedStyle {
+    // Non-inheritable visual properties
     pub background_color: Vec4,
-    pub text_color: Vec4,
     pub border_color: Vec4,
     pub border_width: f32,
     pub border_radius: f32,
-    // Add other inheritable properties here as needed (font_size, etc.)
+    
+    // Inheritable text properties
+    pub text_color: Vec4,
+    pub font_size: f32,
+    pub font_weight: crate::FontWeight,
+    pub text_alignment: crate::TextAlignment,
+    
+    // Inheritable display properties  
+    pub opacity: f32,
+    pub visible: bool,
+    pub cursor: crate::CursorType,
 }
 
 impl Default for ComputedStyle {
     fn default() -> Self {
         Self {
+            // Non-inheritable visual properties
             background_color: Vec4::ZERO, // Transparent
-            text_color: Vec4::new(0.0, 0.0, 0.0, 1.0), // Black
             border_color: Vec4::ZERO, // Transparent
             border_width: 0.0,
             border_radius: 0.0,
+            
+            // Inheritable text properties
+            text_color: Vec4::new(0.0, 0.0, 0.0, 1.0), // Black
+            font_size: 14.0, // Default font size
+            font_weight: crate::FontWeight::Normal,
+            text_alignment: crate::TextAlignment::Start,
+            
+            // Inheritable display properties
+            opacity: 1.0, // Fully opaque
+            visible: true, // Visible by default
+            cursor: crate::CursorType::Default,
         }
     }
 }
@@ -52,6 +73,36 @@ impl StyleComputer {
             cache: RefCell::new(HashMap::new()),
         }
     }
+    
+    /// Determines if a property should be inherited from parent to child
+    fn _is_property_inheritable(property_id: u8) -> bool {
+        match property_id {
+            // Inheritable properties (CSS-like inheritance)
+            0x02 => true, // text_color
+            0x09 => true, // font_size
+            0x0A => true, // font_weight
+            0x0B => true, // text_alignment
+            0x0D => true, // opacity
+            0x0F => true, // visibility
+            0x29 => true, // cursor
+            
+            // Non-inheritable properties
+            0x01 => false, // background_color
+            0x03 => false, // border_color
+            0x04 => false, // border_width
+            0x05 => false, // border_radius
+            0x06 => false, // padding
+            0x07 => false, // margin
+            0x19 => false, // width
+            0x1A => false, // layout_flags
+            0x1B => false, // height
+            0x50..=0x5F => false, // position properties
+            0x40..=0x4F => false, // layout properties
+            
+            // Default to non-inheritable for unknown properties
+            _ => false,
+        }
+    }
     /// Computes the final style for a given element, using caching for performance.
     pub fn compute(&self, element_id: ElementId) -> ComputedStyle {
         self.compute_with_state(element_id, crate::InteractionState::Normal)
@@ -69,16 +120,24 @@ impl StyleComputer {
             .expect("Element ID must exist");
 
         // STEP 1: Get Parent's Computed Style (Inheritance)
-        // If the element has a parent, compute its style first and use it as the base.
-        // Only inherit text color, not borders (which are component-specific)
+        // If the element has a parent, compute its style first and inherit inheritable properties
         let mut computed_style = if let Some(parent_id) = element.parent {
             let parent_style = self.compute(parent_id);
             ComputedStyle {
-                text_color: parent_style.text_color, // Inherit text color
-                background_color: Vec4::ZERO, // Don't inherit background
-                border_color: Vec4::ZERO, // Don't inherit border
-                border_width: 0.0, // Don't inherit border
-                border_radius: 0.0, // Don't inherit border
+                // Non-inheritable properties - always reset to defaults
+                background_color: Vec4::ZERO,
+                border_color: Vec4::ZERO,
+                border_width: 0.0,
+                border_radius: 0.0,
+                
+                // Inheritable properties - inherit from parent
+                text_color: parent_style.text_color,
+                font_size: parent_style.font_size,
+                font_weight: parent_style.font_weight,
+                text_alignment: parent_style.text_alignment,
+                opacity: parent_style.opacity,
+                visible: parent_style.visible,
+                cursor: parent_style.cursor,
             }
         } else {
             ComputedStyle::default()
@@ -116,6 +175,33 @@ impl StyleComputer {
                         0x05 => if let Some(f) = prop_value.as_float() { 
                             computed_style.border_radius = f; 
                         }
+                        0x09 => if let Some(f) = prop_value.as_float() { 
+                            computed_style.font_size = f; 
+                        }
+                        0x0A => if let Some(i) = prop_value.as_int() {
+                            computed_style.font_weight = match i {
+                                300 => crate::FontWeight::Light,
+                                400 => crate::FontWeight::Normal,
+                                700 => crate::FontWeight::Bold,
+                                900 => crate::FontWeight::Heavy,
+                                _ => crate::FontWeight::Normal,
+                            };
+                        }
+                        0x0B => if let Some(s) = prop_value.as_string() {
+                            computed_style.text_alignment = match s {
+                                "start" => crate::TextAlignment::Start,
+                                "center" => crate::TextAlignment::Center,
+                                "end" => crate::TextAlignment::End,
+                                "justify" => crate::TextAlignment::Justify,
+                                _ => crate::TextAlignment::Start,
+                            };
+                        }
+                        0x0D => if let Some(f) = prop_value.as_float() {
+                            computed_style.opacity = f.clamp(0.0, 1.0); 
+                        }
+                        0x0F => if let Some(b) = prop_value.as_bool() {
+                            computed_style.visible = b;
+                        }
                         0x19 => {
                             // Width property - need to apply to element size
                             // Since we can't modify element here, we'll need a different approach
@@ -128,6 +214,16 @@ impl StyleComputer {
                             // Height property - need to apply to element size
                             // Since we can't modify element here, we'll need a different approach
                         }
+                        0x29 => if let Some(s) = prop_value.as_string() {
+                            computed_style.cursor = match s {
+                                "default" => crate::CursorType::Default,
+                                "pointer" => crate::CursorType::Pointer,
+                                "text" => crate::CursorType::Text,
+                                "move" => crate::CursorType::Move,
+                                "not-allowed" => crate::CursorType::NotAllowed,
+                                _ => crate::CursorType::Default,
+                            };
+                        }
                         _ => {}
                     }
                 }
@@ -138,11 +234,23 @@ impl StyleComputer {
         // This is for properties defined directly on the element, not in a style block.
         // The parser places these values directly on the Element struct. We check if they are
         // non-default, which signifies an inline override.
+        
+        // Non-inheritable visual properties
         if element.background_color != Vec4::ZERO { computed_style.background_color = element.background_color; }
-        if element.text_color != Vec4::new(0.0, 0.0, 0.0, 1.0) { computed_style.text_color = element.text_color; }
         if element.border_color != Vec4::ZERO { computed_style.border_color = element.border_color; }
         if element.border_width != 0.0 { computed_style.border_width = element.border_width; }
         if element.border_radius != 0.0 { computed_style.border_radius = element.border_radius; }
+        
+        // Inheritable text properties
+        if element.text_color != Vec4::new(0.0, 0.0, 0.0, 1.0) { computed_style.text_color = element.text_color; }
+        if element.font_size != 14.0 { computed_style.font_size = element.font_size; }
+        if element.font_weight != crate::FontWeight::Normal { computed_style.font_weight = element.font_weight; }
+        if element.text_alignment != crate::TextAlignment::Start { computed_style.text_alignment = element.text_alignment; }
+        
+        // Inheritable display properties
+        if element.opacity != 1.0 { computed_style.opacity = element.opacity; }
+        if !element.visible { computed_style.visible = element.visible; }
+        if element.cursor != crate::CursorType::Default { computed_style.cursor = element.cursor; }
 
         // STEP 4: Auto-apply border width when border color is set but width is not
         if computed_style.border_color.w > 0.0 && computed_style.border_width == 0.0 {

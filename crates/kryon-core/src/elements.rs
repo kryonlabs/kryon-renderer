@@ -1,7 +1,7 @@
 // crates/kryon-core/src/elements.rs
 use glam::{Vec2, Vec4};
 use std::collections::HashMap;
-use crate::PropertyValue;
+use crate::{PropertyValue, LayoutSize, LayoutPosition};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -49,9 +49,12 @@ pub struct Element {
     pub style_id: u8,
 
     // Layout properties
-    pub position: Vec2,
-    pub size: Vec2,
+    pub position: Vec2,  // Computed pixel position (for backward compatibility)
+    pub size: Vec2,      // Computed pixel size (for backward compatibility)
+    pub layout_position: LayoutPosition,  // Flexible position with percentage support
+    pub layout_size: LayoutSize,          // Flexible size with percentage support
     pub layout_flags: u8,
+    pub gap: f32,        // Gap between flex items
     
     // Visual properties
     pub background_color: Vec4,
@@ -136,7 +139,10 @@ impl Default for Element {
             style_id: 0, 
             position: Vec2::ZERO,
             size: Vec2::ZERO,
+            layout_position: LayoutPosition::zero(),
+            layout_size: LayoutSize::auto(),
             layout_flags: 0,
+            gap: 0.0,
             background_color: Vec4::new(0.0, 0.0, 0.0, 0.0), // Transparent
             text_color: Vec4::new(0.0, 0.0, 0.0, 1.0), // Black
             border_color: Vec4::new(0.0, 0.0, 0.0, 0.0), // Transparent

@@ -1,5 +1,5 @@
 // crates/kryon-core/src/krb.rs
-use crate::{Element, ElementId, ElementType, PropertyValue, Result, KryonError, TextAlignment, Style, CursorType, InteractionState, EventType, TransformData, TransformType, TransformProperty, TransformPropertyType, CSSUnitValue, CSSUnit}; 
+use crate::{Element, ElementId, ElementType, PropertyValue, Result, KryonError, TextAlignment, Style, CursorType, InteractionState, EventType, TransformData, TransformType, TransformProperty, TransformPropertyType, CSSUnitValue, CSSUnit, LayoutSize, LayoutPosition, LayoutDimension}; 
 use std::collections::HashMap;
 use glam::{Vec2, Vec4};
 
@@ -120,7 +120,7 @@ impl KRBParser {
         
         self.position = style_offset;
         
-        for i in 0..header.style_count {
+        for _i in 0..header.style_count {
             let style_id = self.read_u8(); // Read the actual style ID from file
             let name_index = self.read_u8() as usize;
             let property_count = self.read_u8();
@@ -503,6 +503,12 @@ impl KRBParser {
         element.style_id = style_id; 
         element.position = Vec2::new(pos_x, pos_y);
         element.size = Vec2::new(width, height);
+        // Initialize layout fields with pixel values for now
+        element.layout_position = LayoutPosition::pixels(pos_x, pos_y);
+        element.layout_size = LayoutSize::pixels(width, height);
+        
+        // TODO: Parse percentage values from custom properties when compiler supports it
+        // For now we'll use a simple enhancement for testing
         element.layout_flags = layout_flags;
         
         // Set initial interaction state based on checked field
@@ -532,7 +538,7 @@ impl KRBParser {
         
         // Skip state property sets (TODO: implement properly)
         for _ in 0.._state_prop_count {
-            let state_flags = self.read_u8();
+            let _state_flags = self.read_u8();
             let state_property_count = self.read_u8();
             for _ in 0..state_property_count {
                 // Skip state properties (same format as standard properties)
@@ -569,6 +575,9 @@ impl KRBParser {
         
         // Convert modern CSS properties to layout_flags if present
         self.convert_css_properties_to_layout_flags(&mut element);
+        
+        // Check for percentage values in custom properties
+        self.parse_percentage_properties(&mut element);
         
         Ok(element)
     }
@@ -947,7 +956,7 @@ impl KRBParser {
     fn parse_custom_property(&mut self, element: &mut Element, strings: &[String]) -> Result<()> {
         let key_index = self.read_u8() as usize;
         let value_type = self.read_u8();
-        let size = self.read_u8();
+        let _size = self.read_u8();
         
         let key = if key_index < strings.len() {
             strings[key_index].clone()
@@ -1336,7 +1345,10 @@ impl KRBParser {
             style_id: 0,
             position: Vec2::ZERO,
             size: Vec2::new(800.0, 600.0), // Default window size
+            layout_position: LayoutPosition::pixels(0.0, 0.0),
+            layout_size: LayoutSize::pixels(800.0, 600.0),
             layout_flags: 0,
+            gap: 0.0,
             background_color: Vec4::new(0.1, 0.1, 0.1, 1.0), // Dark gray background
             text_color: Vec4::new(1.0, 1.0, 1.0, 1.0), // White text
             border_color: Vec4::new(0.0, 0.0, 0.0, 0.0), // Transparent border
@@ -1501,7 +1513,7 @@ impl KRBParser {
         u16::from_le_bytes([self.data[offset], self.data[offset + 1]])
     }
     
-    fn read_u32(&mut self) -> u32 {
+    fn _read_u32(&mut self) -> u32 {
         let value = u32::from_le_bytes([
             self.data[self.position],
             self.data[self.position + 1],
@@ -1519,6 +1531,41 @@ impl KRBParser {
             self.data[offset + 2],
             self.data[offset + 3],
         ])
+    }
+    
+    /// Parse percentage values from custom properties and update layout fields
+    fn parse_percentage_properties(&self, element: &mut Element) {
+        // Check for width percentage
+        if let Some(PropertyValue::String(width_str)) = element.custom_properties.get("width") {
+            if let Ok(dimension) = self.parse_dimension_string(width_str) {
+                element.layout_size.width = dimension;
+            }
+        }
+        
+        // Check for height percentage
+        if let Some(PropertyValue::String(height_str)) = element.custom_properties.get("height") {
+            if let Ok(dimension) = self.parse_dimension_string(height_str) {
+                element.layout_size.height = dimension;
+            }
+        }
+        
+        // Check for position percentages
+        if let Some(PropertyValue::String(x_str)) = element.custom_properties.get("pos_x") {
+            if let Ok(dimension) = self.parse_dimension_string(x_str) {
+                element.layout_position.x = dimension;
+            }
+        }
+        
+        if let Some(PropertyValue::String(y_str)) = element.custom_properties.get("pos_y") {
+            if let Ok(dimension) = self.parse_dimension_string(y_str) {
+                element.layout_position.y = dimension;
+            }
+        }
+    }
+    
+    /// Parse a dimension string (e.g., "50%", "100px", "auto") into a LayoutDimension
+    fn parse_dimension_string(&self, value: &str) -> Result<LayoutDimension> {
+        Ok(LayoutDimension::from_string(value))
     }
     
     fn event_type_from_id(&self, id: u8) -> Option<EventType> {

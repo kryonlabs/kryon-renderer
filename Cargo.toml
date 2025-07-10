@@ -29,6 +29,23 @@ required-features = ["raylib"]
 name = "kryon-renderer-debug"
 path = "src/bin/kryon-renderer-debug.rs"
 
+[[example]]
+name = "percentage_test"
+path = "examples/percentage_test.rs"
+required-features = ["kryon-runtime/lua-vm"]
+
+[[example]]
+name = "gap_test"
+path = "examples/gap_test.rs"
+
+[[example]]
+name = "flex_wrap_test"
+path = "examples/flex_wrap_test.rs"
+
+[[example]]
+name = "style_inheritance_test"
+path = "examples/style_inheritance_test.rs"
+
 
 [workspace]
 members = [

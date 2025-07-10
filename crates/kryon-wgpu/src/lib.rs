@@ -35,7 +35,7 @@ pub struct WgpuRenderer {
     text_renderer: TextRenderer,
     
     // Resource management
-    resource_manager: ResourceManager,
+    _resource_manager: ResourceManager,
     
     // Vertex buffers (reusable)
     vertex_buffer: wgpu::Buffer,
@@ -396,7 +396,7 @@ impl WgpuRenderer {
             view_proj_buffer,
             view_proj_bind_group,
             text_renderer,
-            resource_manager: ResourceManager::new(),
+            _resource_manager: ResourceManager::new(),
             vertex_buffer,
             index_buffer,
         };

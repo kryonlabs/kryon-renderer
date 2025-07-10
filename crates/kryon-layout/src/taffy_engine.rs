@@ -7,7 +7,7 @@ use kryon_core::{Element, ElementId};
 use glam::Vec2;
 use std::collections::HashMap;
 use taffy::prelude::*;
-use tracing::{debug, trace};
+use tracing::debug;
 
 /// Taffy-based layout engine that replaces the legacy flex layout system
 pub struct TaffyLayoutEngine {
@@ -127,44 +127,6 @@ impl TaffyLayoutEngine {
             .ok_or_else(|| taffy::TaffyError::InvalidChildNode(taffy::NodeId::new(0)))
     }
 
-    /// Build Taffy tree recursively from KRB elements (OLD METHOD)
-    fn build_taffy_tree(
-        &mut self,
-        elements: &HashMap<ElementId, Element>,
-        element_id: ElementId,
-    ) -> Result<taffy::NodeId, taffy::TaffyError> {
-        let element = elements.get(&element_id)
-            .ok_or_else(|| taffy::TaffyError::InvalidChildNode(taffy::NodeId::new(0)))?;
-
-        // Convert KRB properties to Taffy style
-        let style = self.krb_to_taffy_style(element);
-        
-        // eprintln!("[TAFFY_BUILD] Element {}: style={:?}", element_id, style);
-
-        // Create Taffy node
-        let node = self.taffy.new_leaf(style)?;
-        
-        // Store bidirectional mapping
-        self.element_to_node.insert(element_id, node);
-        self.node_to_element.insert(node, element_id);
-        
-        eprintln!("[TAFFY_NODE] Element {} -> Taffy Node {:?}", element_id, node);
-
-        // Process children recursively
-        let mut child_nodes = Vec::new();
-        for &child_id in &element.children {
-            let child_node = self.build_taffy_tree(elements, child_id)?;
-            child_nodes.push(child_node);
-        }
-
-        // Add children to this node
-        if !child_nodes.is_empty() {
-            self.taffy.set_children(node, &child_nodes)?;
-        }
-
-        trace!("Created Taffy node for element {}: {:?}", element_id, element.element_type);
-        Ok(node)
-    }
 
     /// Convert kryon-core Element to Taffy Style
     fn krb_to_taffy_style(&self, element: &Element) -> Style {

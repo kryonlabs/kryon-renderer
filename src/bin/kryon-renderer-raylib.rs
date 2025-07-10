@@ -4,7 +4,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use glam::Vec2;
 use tracing::{error, info};
 
 use kryon_render::Renderer;
@@ -152,7 +151,7 @@ fn main() -> Result<()> {
     
     let mut last_frame_time = Instant::now();
     let start_time = Instant::now();
-    let mut screenshot_taken = false;
+    let screenshot_taken = false;
     
     'main_loop: loop {
         // Check if window should close
@@ -202,7 +201,7 @@ fn main() -> Result<()> {
                 } else {
                     info!("Screenshot saved successfully");
                 }
-                screenshot_taken = true;
+                let _screenshot_taken = true;
                 break; // Exit after taking screenshot
             }
         }

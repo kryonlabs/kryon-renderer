@@ -200,7 +200,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
         // Check if element has transform data
         let transform = element.custom_properties.get("transform_index")
             .and_then(|v| v.as_int())
-            .and_then(|index| {
+            .and_then(|_index| {
                 // TODO: Get transform data from KRB file transforms array
                 // For now, return None until we have access to the transforms
                 None
