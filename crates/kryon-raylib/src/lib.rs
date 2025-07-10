@@ -15,6 +15,8 @@ pub struct RaylibRenderer {
     thread: RaylibThread,
     size: Vec2,
     textures: HashMap<String, Texture2D>,
+    fonts: HashMap<String, Font>,  // Font cache: font_family_name -> Font
+    font_paths: HashMap<String, String>,  // Font mappings: font_family_name -> file_path
     pending_commands: Vec<RenderCommand>,
     prev_mouse_pos: Vec2,
     current_cursor: CursorType,
@@ -48,6 +50,8 @@ impl Renderer for RaylibRenderer {
             thread,
             size: Vec2::new(width as f32, height as f32),
             textures: HashMap::new(),
+            fonts: HashMap::new(),
+            font_paths: HashMap::new(),
             pending_commands: Vec::new(),
             prev_mouse_pos: Vec2::new(-1.0, -1.0), // Initialize to invalid position
             current_cursor: CursorType::Default,
@@ -74,7 +78,7 @@ impl Renderer for RaylibRenderer {
             // Execute all commands without borrowing self
             for command in &commands {
 
-                Self::execute_single_command_impl(&mut d, &mut self.textures, command)?;
+                Self::execute_single_command_impl(&mut d, &mut self.textures, &self.fonts, command)?;
             }
         }
         
@@ -169,6 +173,45 @@ impl RaylibRenderer {
     /// Resolve image path by checking multiple locations
     fn resolve_image_path(&self, path: &str) -> Option<String> {
         resolve_image_path_static(path)
+    }
+    
+    /// Register a font family with its file path
+    pub fn register_font(&mut self, font_family: &str, font_path: &str) {
+        self.font_paths.insert(font_family.to_string(), font_path.to_string());
+        eprintln!("[RAYLIB_FONT] Registered font '{}' -> '{}'", font_family, font_path);
+    }
+    
+    /// Load a font from file and cache it for future use
+    pub fn load_font(&mut self, font_family: &str) -> RenderResult<()> {
+        if !self.fonts.contains_key(font_family) {
+            if let Some(font_path) = self.font_paths.get(font_family) {
+                let resolved_path = resolve_font_path_static(font_path);
+                if let Some(actual_path) = resolved_path {
+                    match self.handle.load_font(&self.thread, &actual_path) {
+                        Ok(font) => {
+                            self.fonts.insert(font_family.to_string(), font);
+                            eprintln!("[RAYLIB_FONT] Loaded and cached font '{}' from: {}", font_family, actual_path);
+                        }
+                        Err(e) => {
+                            eprintln!("[RAYLIB_FONT] Failed to load font '{}' from {}: {}", font_family, actual_path, e);
+                            return Err(RenderError::ResourceNotFound(format!("Failed to load font {}: {}", actual_path, e)));
+                        }
+                    }
+                } else {
+                    eprintln!("[RAYLIB_FONT] Font file not found: {}", font_path);
+                    return Err(RenderError::ResourceNotFound(format!("Font file not found: {}", font_path)));
+                }
+            } else {
+                eprintln!("[RAYLIB_FONT] Font family '{}' not registered", font_family);
+                // Don't treat this as an error - just use default font
+            }
+        }
+        Ok(())
+    }
+    
+    /// Get a loaded font by family name, or None if not loaded/default
+    fn get_font(&self, font_family: &str) -> Option<&Font> {
+        self.fonts.get(font_family)
     }
     
     /// Manually poll input events from the OS - this is what EndDrawing() normally does
@@ -272,6 +315,7 @@ impl RaylibRenderer {
     fn execute_single_command_impl(
         d: &mut RaylibDrawHandle,
         textures: &mut HashMap<String, Texture2D>,
+        fonts: &HashMap<String, Font>,
         command: &RenderCommand,
     ) -> RenderResult<()> {
         match command {
@@ -352,11 +396,28 @@ impl RaylibRenderer {
                 max_width,
                 max_height,
                 transform,
+                font_family,
             } => {
                 let raylib_color = vec4_to_raylib_color(*color);
                 
-                // Calculate text positioning based on alignment
-                let text_width = d.measure_text(text, *font_size as i32) as f32;
+                // Determine which font to use
+                let (text_width, custom_font) = if let Some(font_name) = font_family {
+                    if let Some(font) = fonts.get(font_name) {
+                        // Use custom font - calculate width using font's base size
+                        let base_size = font.base_size() as f32;
+                        let scale = *font_size / base_size;
+                        let width = d.measure_text(text, font.base_size() as i32) as f32 * scale;
+                        eprintln!("[RAYLIB_FONT] Using custom font '{}' for text '{}'", font_name, text);
+                        (width, Some(font))
+                    } else {
+                        // Font not loaded or not found, use default
+                        eprintln!("[RAYLIB_FONT] Font '{}' not loaded, using default", font_name);
+                        (d.measure_text(text, *font_size as i32) as f32, None)
+                    }
+                } else {
+                    // No custom font specified, use default
+                    (d.measure_text(text, *font_size as i32) as f32, None)
+                };
                 let text_height = *font_size;
                 
                 let (text_x, text_y) = match alignment {
@@ -395,31 +456,70 @@ impl RaylibRenderer {
                     if rotation != 0.0 {
                         // For rotation, use draw_text_pro if available, otherwise fall back to basic draw_text
                         // Note: draw_text_pro may not be available in all Raylib versions
-                        d.draw_text(
+                        if let Some(font) = custom_font {
+                            d.draw_text_pro(
+                                font,
+                                text,
+                                Vector2::new(transformed_x, transformed_y),
+                                Vector2::zero(),
+                                0.0, // rotation
+                                *font_size as f32 * scale.y,
+                                1.0, // spacing
+                                raylib_color,
+                            );
+                        } else {
+                            d.draw_text(
+                                text,
+                                transformed_x as i32,
+                                transformed_y as i32,
+                                (*font_size as f32 * scale.y) as i32,
+                                raylib_color,
+                            );
+                        }
+                    } else {
+                        if let Some(font) = custom_font {
+                            d.draw_text_pro(
+                                font,
+                                text,
+                                Vector2::new(transformed_x, transformed_y),
+                                Vector2::zero(),
+                                0.0, // rotation
+                                *font_size as f32 * scale.y,
+                                1.0, // spacing
+                                raylib_color,
+                            );
+                        } else {
+                            d.draw_text(
+                                text,
+                                transformed_x as i32,
+                                transformed_y as i32,
+                                (*font_size as f32 * scale.y) as i32,
+                                raylib_color,
+                            );
+                        }
+                    }
+                } else {
+                    // Draw without transform (original behavior)
+                    if let Some(font) = custom_font {
+                        d.draw_text_pro(
+                            font,
                             text,
-                            transformed_x as i32,
-                            transformed_y as i32,
-                            (*font_size as f32 * scale.y) as i32,
+                            Vector2::new(text_x, text_y),
+                            Vector2::zero(),
+                            0.0, // rotation
+                            *font_size,
+                            1.0, // spacing
                             raylib_color,
                         );
                     } else {
                         d.draw_text(
                             text,
-                            transformed_x as i32,
-                            transformed_y as i32,
-                            (*font_size as f32 * scale.y) as i32,
+                            text_x as i32,
+                            text_y as i32,
+                            *font_size as i32,
                             raylib_color,
                         );
                     }
-                } else {
-                    // Draw without transform (original behavior)
-                    d.draw_text(
-                        text,
-                        text_x as i32,
-                        text_y as i32,
-                        *font_size as i32,
-                        raylib_color,
-                    );
                 }
             }
             RenderCommand::DrawImage {
@@ -695,6 +795,46 @@ fn raylib_key_to_kryon_key(key: KeyboardKey) -> Option<KeyCode> {
         
         _ => None,
     }
+}
+
+/// Resolve font path by checking multiple locations  
+fn resolve_font_path_static(path: &str) -> Option<String> {
+    // Try the path as-is first (relative to current working directory)
+    if std::path::Path::new(path).exists() {
+        eprintln!("[RAYLIB_FONT] Found font at current path: {}", path);
+        return Some(path.to_string());
+    }
+    
+    // Get the KRB file path from command line args if available
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(krb_arg) = args.iter().find(|arg| arg.ends_with(".krb")) {
+        if let Some(krb_dir) = std::path::Path::new(krb_arg).parent() {
+            let krb_relative_path = krb_dir.join(path);
+            if krb_relative_path.exists() {
+                let resolved = krb_relative_path.to_string_lossy().to_string();
+                eprintln!("[RAYLIB_FONT] Found font relative to KRB: {}", resolved);
+                return Some(resolved);
+            }
+        }
+    }
+    
+    // Try some common relative paths for fonts
+    let common_paths = [
+        format!("assets/fonts/{}", path),
+        format!("fonts/{}", path),
+        format!("resources/fonts/{}", path),
+        format!("assets/{}", path),
+    ];
+    
+    for test_path in &common_paths {
+        if std::path::Path::new(test_path).exists() {
+            eprintln!("[RAYLIB_FONT] Found font at common path: {}", test_path);
+            return Some(test_path.clone());
+        }
+    }
+    
+    eprintln!("[RAYLIB_FONT] Font not found in any location: {}", path);
+    None
 }
 
 /// Resolve image path by checking multiple locations

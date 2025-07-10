@@ -128,8 +128,12 @@ fn main() -> Result<()> {
     info!("Initializing Raylib renderer with properties: {}x{} '{}'", final_width, final_height, &final_title);
     
     // Initialize renderer with the final, resolved properties
-    let renderer = RaylibRenderer::initialize((final_width, final_height, final_title))
+    let mut renderer = RaylibRenderer::initialize((final_width, final_height, final_title))
         .context("Failed to initialize Raylib renderer")?;
+
+    // Register fonts from the KRB file
+    // Extract font mappings from KRB file strings
+    register_fonts_from_krb(&mut renderer, &krb_file);
 
     let mut app = KryonApp::new(&args.krb_file, renderer)
         .context("Failed to create Kryon application")?;
@@ -209,4 +213,33 @@ fn main() -> Result<()> {
     
     info!("Raylib renderer shutdown complete");
     Ok(())
+}
+
+fn register_fonts_from_krb(renderer: &mut RaylibRenderer, krb_file: &kryon_core::KRBFile) {
+    // Look for font declarations in the KRB strings
+    // Based on the compiler implementation, font names and paths should be stored in strings
+    // We need to find patterns like "font_name" followed by "font_path.ttf"
+    
+    for (i, string) in krb_file.strings.iter().enumerate() {
+        // Look for TTF font files
+        if string.ends_with(".ttf") || string.ends_with(".otf") {
+            // Look for the corresponding font name in previous strings
+            // The font name should be before the font path
+            for (j, font_name) in krb_file.strings.iter().enumerate() {
+                if j < i && !font_name.is_empty() && 
+                   !font_name.starts_with('#') && // Not a color
+                   !font_name.contains('/') && // Not a path
+                   !font_name.contains('.') && // Not a file
+                   font_name.len() < 32 && // Reasonable font name length
+                   font_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    // This looks like a potential font name
+                    renderer.register_font(font_name, string);
+                    if let Err(e) = renderer.load_font(font_name) {
+                        eprintln!("[RAYLIB_FONT] Warning: Failed to load font '{}' from '{}': {}", font_name, string, e);
+                    }
+                    break; // Only register the closest font name
+                }
+            }
+        }
+    }
 }

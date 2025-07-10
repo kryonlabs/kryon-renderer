@@ -69,6 +69,7 @@ pub struct Element {
     pub text: String,
     pub font_size: f32,
     pub font_weight: FontWeight,
+    pub font_family: String,
     pub text_alignment: TextAlignment,
     
     // Interactive properties
@@ -153,6 +154,7 @@ impl Default for Element {
             text: String::new(),
             font_size: 14.0,
             font_weight: FontWeight::Normal,
+            font_family: "default".to_string(),
             text_alignment: TextAlignment::Start,
             cursor: CursorType::Default,
             disabled: false,

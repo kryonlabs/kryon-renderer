@@ -64,6 +64,7 @@ pub enum RenderCommand {
         max_width: Option<f32>,
         max_height: Option<f32>,
         transform: Option<TransformData>,
+        font_family: Option<String>,
     },
     DrawImage {
         position: Vec2,
@@ -237,6 +238,11 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                     max_width: Some(size.x), // The max width is the element's full width.
                     max_height: Some(size.y), // The max height is the element's full height.
                     transform: transform.clone(),
+                    font_family: if element.font_family.is_empty() || element.font_family == "default" {
+                        None
+                    } else {
+                        Some(element.font_family.clone())
+                    },
                 });
             }
         }

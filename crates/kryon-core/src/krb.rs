@@ -180,11 +180,49 @@ impl KRBParser {
                             continue;
                         }
                     }
+                    0x09 => { // FontSize
+                        if size == 2 {
+                            PropertyValue::Float(self.read_u16() as f32)
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x0A => { // FontWeight
+                        if size == 2 {
+                            PropertyValue::Int(self.read_u16() as i32)
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
                     0x0B => {
                         if size == 1 {
                             PropertyValue::Int(self.read_u8() as i32) // TextAlignment
                         } else {
                             // Skip if wrong size
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x0C => { // FontFamily
+                        if size == 1 {
+                            let string_index = self.read_u8() as usize;
+                            if string_index < strings.len() {
+                                PropertyValue::String(strings[string_index].clone())
+                            } else {
+                                eprintln!("[STYLE]     FontFamily: invalid string index {}", string_index);
+                                continue;
+                            }
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x07 => { // Margin
+                        if size == 1 {
+                            PropertyValue::Float(self.read_u8() as f32)
+                        } else {
                             for _ in 0..size { self.read_u8(); }
                             continue;
                         }
@@ -684,11 +722,18 @@ impl KRBParser {
                 };
                 eprintln!("[PROP] FontWeight: {}", weight);
             }
-            0x0D => { // Opacity
+            0x0C => { // FontFamily
+                let string_index = self.read_u8() as usize;
+                if string_index < strings.len() {
+                    element.font_family = strings[string_index].clone();
+                    eprintln!("[PROP] FontFamily: '{}'", element.font_family);
+                }
+            }
+            0x0E => { // Opacity
                 element.opacity = self.read_u16() as f32 / 256.0; // 8.8 fixed point
                 eprintln!("[PROP] Opacity: {}", element.opacity);
             }
-            0x0E => { // ZIndex
+            0x0F => { // ZIndex
                 let z_index = self.read_u16() as i32;
                 element.custom_properties.insert("z_index".to_string(), PropertyValue::Int(z_index));
                 eprintln!("[PROP] ZIndex: {}", z_index);
@@ -705,7 +750,7 @@ impl KRBParser {
                     _ => TextAlignment::Start,
                 };
             }
-            0x0C => { // ImageSource
+            0x0D => { // ImageSource
                 let string_index = self.read_u8() as usize;
                 if string_index < strings.len() {
                     let image_src = strings[string_index].clone();
@@ -713,31 +758,31 @@ impl KRBParser {
                     eprintln!("[PROP] ImageSource: '{}'", image_src);
                 }
             }
-            0x0F => { // Visibility
+            0x10 => { // Visibility
                 element.visible = self.read_u8() != 0;
                 eprintln!("[PROP] Visibility: {}", element.visible);
             }
-            0x10 => { // Gap
+            0x11 => { // Gap
                 let gap = self.read_u8() as f32;
                 element.custom_properties.insert("gap".to_string(), PropertyValue::Float(gap));
                 eprintln!("[PROP] Gap: {}", gap);
             }
-            0x11 => { // MinWidth
+            0x12 => { // MinWidth
                 let min_width = self.read_u16() as f32;
                 element.custom_properties.insert("min_width".to_string(), PropertyValue::Float(min_width));
                 eprintln!("[PROP] MinWidth: {}", min_width);
             }
-            0x12 => { // MinHeight
+            0x13 => { // MinHeight
                 let min_height = self.read_u16() as f32;
                 element.custom_properties.insert("min_height".to_string(), PropertyValue::Float(min_height));
                 eprintln!("[PROP] MinHeight: {}", min_height);
             }
-            0x13 => { // MaxWidth
+            0x14 => { // MaxWidth
                 let max_width = self.read_u16() as f32;
                 element.custom_properties.insert("max_width".to_string(), PropertyValue::Float(max_width));
                 eprintln!("[PROP] MaxWidth: {}", max_width);
             }
-            0x14 => { // MaxHeight
+            0x15 => { // MaxHeight
                 let max_height = self.read_u16() as f32;
                 element.custom_properties.insert("max_height".to_string(), PropertyValue::Float(max_height));
                 eprintln!("[PROP] MaxHeight: {}", max_height);
@@ -1359,6 +1404,7 @@ impl KRBParser {
             text: "Auto-generated App".to_string(),
             font_size: 14.0,
             font_weight: crate::elements::FontWeight::Normal,
+            font_family: "default".to_string(),
             text_alignment: crate::elements::TextAlignment::Start,
             cursor: crate::elements::CursorType::Default,
             disabled: false,
@@ -1456,6 +1502,36 @@ impl KRBParser {
                             }
                         } else {
                             eprintln!("[STYLE_LAYOUT] No text_alignment property (0x0B) found in style '{}'", style_block.name);
+                        }
+                        
+                        // Apply font properties
+                        if let Some(font_size_prop) = style_block.properties.get(&0x09) {
+                            if let Some(font_size) = font_size_prop.as_float() {
+                                eprintln!("[STYLE_LAYOUT] Applying font_size {} from style '{}' to element", 
+                                    font_size, style_block.name);
+                                element.font_size = font_size;
+                            }
+                        }
+                        
+                        if let Some(font_weight_prop) = style_block.properties.get(&0x0A) {
+                            if let Some(weight) = font_weight_prop.as_int() {
+                                eprintln!("[STYLE_LAYOUT] Applying font_weight {} from style '{}' to element", 
+                                    weight, style_block.name);
+                                element.font_weight = match weight {
+                                    300 => crate::elements::FontWeight::Light,
+                                    700 => crate::elements::FontWeight::Bold,
+                                    900 => crate::elements::FontWeight::Heavy,
+                                    _ => crate::elements::FontWeight::Normal,
+                                };
+                            }
+                        }
+                        
+                        if let Some(font_family_prop) = style_block.properties.get(&0x0C) {
+                            if let Some(font_family) = font_family_prop.as_string() {
+                                eprintln!("[STYLE_LAYOUT] Applying font_family '{}' from style '{}' to element", 
+                                    font_family, style_block.name);
+                                element.font_family = font_family.to_string();
+                            }
                         }
                     }
                     
