@@ -80,6 +80,47 @@ pub enum RenderCommand {
     ClearClip,
     /// Informs the renderer of the application's intended canvas size.
     SetCanvasSize(Vec2),
+    /// Input-specific rendering commands
+    DrawTextInput {
+        position: Vec2,
+        size: Vec2,
+        text: String,
+        placeholder: String,
+        font_size: f32,
+        text_color: Vec4,
+        background_color: Vec4,
+        border_color: Vec4,
+        border_width: f32,
+        border_radius: f32,
+        is_focused: bool,
+        is_readonly: bool,
+        transform: Option<TransformData>,
+    },
+    DrawCheckbox {
+        position: Vec2,
+        size: Vec2,
+        is_checked: bool,
+        text: String,
+        font_size: f32,
+        text_color: Vec4,
+        background_color: Vec4,
+        border_color: Vec4,
+        border_width: f32,
+        check_color: Vec4,
+        transform: Option<TransformData>,
+    },
+    DrawSlider {
+        position: Vec2,
+        size: Vec2,
+        value: f32,
+        min_value: f32,
+        max_value: f32,
+        track_color: Vec4,
+        thumb_color: Vec4,
+        border_color: Vec4,
+        border_width: f32,
+        transform: Option<TransformData>,
+    },
 }
 
 /// Trait for backends that use command-based rendering.
@@ -260,6 +301,113 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                     });
                 }
             }
+        }
+        
+        // Handle Input elements with different types
+        if element.element_type == ElementType::Input {
+            let input_type = element.custom_properties.get("input_type")
+                .and_then(|v| if let PropertyValue::String(s) = v { Some(s.as_str()) } else { None })
+                .unwrap_or("text"); // Default to text if no type specified
+            
+            match input_type {
+                "text" | "password" | "email" | "number" | "tel" | "url" | "search" => {
+                    // Get input-specific properties
+                    let placeholder = element.custom_properties.get("placeholder")
+                        .and_then(|v| if let PropertyValue::String(s) = v { Some(s.clone()) } else { None })
+                        .unwrap_or_default();
+                    
+                    let is_readonly = element.custom_properties.get("readonly")
+                        .and_then(|v| if let PropertyValue::Bool(b) = v { Some(*b) } else { None })
+                        .unwrap_or(false);
+                    
+                    // Use text content as the input value
+                    let input_text = element.text.clone();
+                    
+                    commands.push(RenderCommand::DrawTextInput {
+                        position,
+                        size,
+                        text: input_text,
+                        placeholder,
+                        font_size: element.font_size,
+                        text_color: style.text_color,
+                        background_color: bg_color,
+                        border_color,
+                        border_width,
+                        border_radius: style.border_radius,
+                        is_focused: element.current_state == kryon_core::InteractionState::Focus,
+                        is_readonly,
+                        transform: transform.clone(),
+                    });
+                }
+                "checkbox" | "radio" => {
+                    let check_text = element.custom_properties.get("text")
+                        .and_then(|v| if let PropertyValue::String(s) = v { Some(s.clone()) } else { None })
+                        .unwrap_or_default();
+                    
+                    commands.push(RenderCommand::DrawCheckbox {
+                        position,
+                        size,
+                        is_checked: element.current_state == kryon_core::InteractionState::Checked,
+                        text: check_text,
+                        font_size: element.font_size,
+                        text_color: style.text_color,
+                        background_color: bg_color,
+                        border_color,
+                        border_width,
+                        check_color: style.text_color, // Use text color for checkmark
+                        transform: transform.clone(),
+                    });
+                }
+                "range" => {
+                    let min_value = element.custom_properties.get("min")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0);
+                    
+                    let max_value = element.custom_properties.get("max")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(100.0);
+                    
+                    let current_value = element.custom_properties.get("value")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(min_value);
+                    
+                    commands.push(RenderCommand::DrawSlider {
+                        position,
+                        size,
+                        value: current_value,
+                        min_value,
+                        max_value,
+                        track_color: bg_color,
+                        thumb_color: style.text_color,
+                        border_color,
+                        border_width,
+                        transform: transform.clone(),
+                    });
+                }
+                _ => {
+                    // For unsupported input types, render as text input
+                    eprintln!("[RENDER] Warning: Unsupported input type '{}', rendering as text input", input_type);
+                    commands.push(RenderCommand::DrawTextInput {
+                        position,
+                        size,
+                        text: element.text.clone(),
+                        placeholder: String::new(),
+                        font_size: element.font_size,
+                        text_color: style.text_color,
+                        background_color: bg_color,
+                        border_color,
+                        border_width,
+                        border_radius: style.border_radius,
+                        is_focused: false,
+                        is_readonly: false,
+                        transform: transform.clone(),
+                    });
+                }
+            }
+            
+            // Skip drawing the default background rect and text for Input elements
+            // since the input-specific commands handle their own rendering
+            return Ok(commands);
         }
 
         Ok(commands)

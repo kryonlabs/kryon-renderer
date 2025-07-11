@@ -649,6 +649,152 @@ impl RaylibRenderer {
                 // Raylib handles scissor mode differently - it's scoped to the draw handle
                 // This is a no-op since scissor mode will end when the draw context ends
             },
+            RenderCommand::DrawTextInput {
+                position,
+                size,
+                text,
+                placeholder,
+                font_size,
+                text_color,
+                background_color,
+                border_color,
+                border_width,
+                border_radius: _,
+                is_focused,
+                is_readonly: _,
+                transform: _,
+            } => {
+                // Draw background
+                let rect = Rectangle::new(position.x, position.y, size.x, size.y);
+                let bg_color = vec4_to_raylib_color(*background_color);
+                d.draw_rectangle_rec(rect, bg_color);
+                
+                // Draw border
+                if *border_width > 0.0 {
+                    let border_raylib_color = vec4_to_raylib_color(*border_color);
+                    d.draw_rectangle_lines_ex(rect, *border_width, border_raylib_color);
+                }
+                
+                // Draw focus indicator if focused
+                if *is_focused {
+                    let focus_color = Color::BLUE;
+                    d.draw_rectangle_lines_ex(rect, 2.0, focus_color);
+                }
+                
+                // Draw text or placeholder
+                let display_text = if text.is_empty() && !placeholder.is_empty() {
+                    placeholder
+                } else {
+                    text
+                };
+                
+                if !display_text.is_empty() {
+                    let text_raylib_color = vec4_to_raylib_color(*text_color);
+                    let text_x = position.x + 5.0; // Small padding
+                    let text_y = position.y + (size.y - *font_size) / 2.0; // Vertically center
+                    
+                    d.draw_text(display_text, text_x as i32, text_y as i32, *font_size as i32, text_raylib_color);
+                }
+            },
+            RenderCommand::DrawCheckbox {
+                position,
+                size,
+                is_checked,
+                text,
+                font_size,
+                text_color,
+                background_color,
+                border_color,
+                border_width,
+                check_color,
+                transform: _,
+            } => {
+                // Draw checkbox square
+                let checkbox_size = size.y.min(20.0); // Max 20px checkbox
+                let checkbox_rect = Rectangle::new(position.x, position.y, checkbox_size, checkbox_size);
+                
+                // Draw background
+                let bg_color = vec4_to_raylib_color(*background_color);
+                d.draw_rectangle_rec(checkbox_rect, bg_color);
+                
+                // Draw border
+                if *border_width > 0.0 {
+                    let border_raylib_color = vec4_to_raylib_color(*border_color);
+                    d.draw_rectangle_lines_ex(checkbox_rect, *border_width, border_raylib_color);
+                }
+                
+                // Draw checkmark if checked
+                if *is_checked {
+                    let check_raylib_color = vec4_to_raylib_color(*check_color);
+                    let check_x = position.x + checkbox_size * 0.2;
+                    let check_y = position.y + checkbox_size * 0.5;
+                    let check_end_x = position.x + checkbox_size * 0.8;
+                    let check_end_y = position.y + checkbox_size * 0.8;
+                    
+                    // Simple checkmark (two lines)
+                    d.draw_line_ex(
+                        Vector2::new(check_x, check_y),
+                        Vector2::new(check_x + checkbox_size * 0.2, check_end_y - checkbox_size * 0.1),
+                        2.0,
+                        check_raylib_color
+                    );
+                    d.draw_line_ex(
+                        Vector2::new(check_x + checkbox_size * 0.2, check_end_y - checkbox_size * 0.1),
+                        Vector2::new(check_end_x, position.y + checkbox_size * 0.2),
+                        2.0,
+                        check_raylib_color
+                    );
+                }
+                
+                // Draw text label
+                if !text.is_empty() {
+                    let text_raylib_color = vec4_to_raylib_color(*text_color);
+                    let text_x = position.x + checkbox_size + 5.0; // Small gap after checkbox
+                    let text_y = position.y + (checkbox_size - *font_size) / 2.0; // Vertically center with checkbox
+                    
+                    d.draw_text(text, text_x as i32, text_y as i32, *font_size as i32, text_raylib_color);
+                }
+            },
+            RenderCommand::DrawSlider {
+                position,
+                size,
+                value,
+                min_value,
+                max_value,
+                track_color,
+                thumb_color,
+                border_color,
+                border_width,
+                transform: _,
+            } => {
+                // Draw track background
+                let track_rect = Rectangle::new(position.x, position.y + size.y * 0.4, size.x, size.y * 0.2);
+                let track_raylib_color = vec4_to_raylib_color(*track_color);
+                d.draw_rectangle_rec(track_rect, track_raylib_color);
+                
+                // Draw track border
+                if *border_width > 0.0 {
+                    let border_raylib_color = vec4_to_raylib_color(*border_color);
+                    d.draw_rectangle_lines_ex(track_rect, *border_width, border_raylib_color);
+                }
+                
+                // Calculate thumb position
+                let value_ratio = (value - min_value) / (max_value - min_value);
+                let thumb_x = position.x + (size.x - 10.0) * value_ratio; // 10px thumb width
+                let thumb_y = position.y;
+                let thumb_size = 10.0;
+                
+                // Draw thumb
+                let thumb_rect = Rectangle::new(thumb_x, thumb_y, thumb_size, size.y);
+                let thumb_raylib_color = vec4_to_raylib_color(*thumb_color);
+                d.draw_rectangle_rec(thumb_rect, thumb_raylib_color);
+                
+                // Draw thumb border
+                if *border_width > 0.0 {
+                    let border_raylib_color = vec4_to_raylib_color(*border_color);
+                    d.draw_rectangle_lines_ex(thumb_rect, *border_width, border_raylib_color);
+                }
+            },
             RenderCommand::SetCanvasSize(_) => {}
         }
         Ok(())
