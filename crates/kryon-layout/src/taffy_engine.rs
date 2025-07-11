@@ -195,9 +195,18 @@ impl TaffyLayoutEngine {
                 style.justify_content = None;
             }
             kryon_core::ElementType::App | kryon_core::ElementType::Container => {
-                // Ensure App and Container elements stay as flex containers if they have flex properties
-                if style.align_items.is_some() || style.justify_content.is_some() || element.layout_flags != 0 {
-                    eprintln!("[TAFFY_CONTAINER_OVERRIDE] Ensuring '{}' stays Display::Flex", element.id);
+                // Ensure App and Container elements stay as flex containers if they have ANY flex properties
+                let has_flex_direction = element.custom_properties.contains_key("flex_direction");
+                let has_justify_content = style.justify_content.is_some();
+                let has_align_items = style.align_items.is_some();
+                let has_display_flex = element.custom_properties.get("display").map_or(false, |v| {
+                    if let kryon_core::PropertyValue::String(s) = v { s == "flex" } else { false }
+                });
+                let has_layout_flags = element.layout_flags != 0;
+                
+                if has_flex_direction || has_justify_content || has_align_items || has_display_flex || has_layout_flags {
+                    eprintln!("[TAFFY_CONTAINER_OVERRIDE] Ensuring '{}' stays Display::Flex (flex_dir={}, justify={}, align={}, display_flex={}, flags={})", 
+                        element.id, has_flex_direction, has_justify_content, has_align_items, has_display_flex, has_layout_flags);
                     style.display = Display::Flex;
                 }
             }
