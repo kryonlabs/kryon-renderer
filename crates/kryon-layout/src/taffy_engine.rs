@@ -133,10 +133,10 @@ impl TaffyLayoutEngine {
     fn krb_to_taffy_style(&self, element: &Element) -> Style {
         let mut style = Style::default();
 
-        // Apply layout flags (legacy system)
-        self.apply_legacy_layout_flags(&mut style, element.layout_flags, element);
-
-        // Apply custom properties for modern CSS features
+        // Apply default flex layout for containers first (provides defaults)
+        self.apply_default_container_layout(&mut style, element);
+        
+        // Apply modern CSS properties (these override defaults)
         self.apply_custom_properties(&mut style, element);
 
         // Apply size constraints from element
@@ -342,9 +342,9 @@ impl TaffyLayoutEngine {
 
         if let Some(PropertyValue::String(value)) = element.custom_properties.get("align_items") {
             style.align_items = Some(match value.as_str() {
-                "start" | "flex-start" => AlignItems::Start,
+                "start" | "flex-start" | "flex_start" => AlignItems::Start,
                 "center" => AlignItems::Center,
-                "end" | "flex-end" => AlignItems::End,
+                "end" | "flex-end" | "flex_end" => AlignItems::End,
                 "stretch" => AlignItems::Stretch,
                 "baseline" => AlignItems::Baseline,
                 _ => AlignItems::Start,
@@ -379,12 +379,12 @@ impl TaffyLayoutEngine {
 
         if let Some(PropertyValue::String(value)) = element.custom_properties.get("justify_content") {
             style.justify_content = Some(match value.as_str() {
-                "start" | "flex-start" => JustifyContent::Start,
+                "start" | "flex-start" | "flex_start" => JustifyContent::Start,
                 "center" => JustifyContent::Center,
-                "end" | "flex-end" => JustifyContent::End,
-                "space-between" => JustifyContent::SpaceBetween,
-                "space-around" => JustifyContent::SpaceAround,
-                "space-evenly" => JustifyContent::SpaceEvenly,
+                "end" | "flex-end" | "flex_end" => JustifyContent::End,
+                "space-between" | "space_between" => JustifyContent::SpaceBetween,
+                "space-around" | "space_around" => JustifyContent::SpaceAround,
+                "space-evenly" | "space_evenly" => JustifyContent::SpaceEvenly,
                 _ => JustifyContent::Start,
             });
         }
@@ -593,73 +593,37 @@ impl TaffyLayoutEngine {
         }
     }
 
-    /// Apply legacy layout flags for backward compatibility
-    fn apply_legacy_layout_flags(&self, style: &mut Style, layout_flags: u8, element: &Element) {
-        // Layout direction constants (matching kryon-compiler types.rs)
-        const LAYOUT_DIRECTION_MASK: u8 = 0x03;
-        const LAYOUT_DIRECTION_ROW: u8 = 0;
-        const LAYOUT_DIRECTION_COLUMN: u8 = 1;
-        const LAYOUT_DIRECTION_ABSOLUTE: u8 = 2;
-
-        let direction = layout_flags & LAYOUT_DIRECTION_MASK;
-        
-        // Only apply flex layout to container elements or elements with explicit layout flags
-        let should_apply_flex = layout_flags != 0 || element.element_type == kryon_core::ElementType::Container || element.element_type == kryon_core::ElementType::App;
-        
-        if should_apply_flex {
-            match direction {
-                LAYOUT_DIRECTION_ROW => {
+    /// Apply default container layout behavior (replaces legacy layout flags)
+    fn apply_default_container_layout(&self, style: &mut Style, element: &Element) {
+        // Set default display behavior based on element type and CSS properties
+        match element.element_type {
+            kryon_core::ElementType::App | kryon_core::ElementType::Container => {
+                // Containers are flex by default unless overridden by CSS display property
+                if !element.custom_properties.contains_key("display") {
                     style.display = Display::Flex;
-                    style.flex_direction = FlexDirection::Row;
-                }
-                LAYOUT_DIRECTION_COLUMN => {
-                    style.display = Display::Flex;
-                    style.flex_direction = FlexDirection::Column;
-                }
-                LAYOUT_DIRECTION_ABSOLUTE => {
-                    style.position = Position::Absolute;
-                    style.display = Display::Block; // Absolute elements need block display
-                }
-                _ => {
-                    // Only set flex for containers when layout_flags is 0
-                    if element.element_type == kryon_core::ElementType::Container || element.element_type == kryon_core::ElementType::App {
-                        style.display = Display::Flex;
-                        style.flex_direction = FlexDirection::Row;
+                    
+                    // Default flex direction if not specified by CSS
+                    if !element.custom_properties.contains_key("flex_direction") {
+                        style.flex_direction = FlexDirection::Row; // Default to row layout
                     }
                 }
             }
-        }
-
-        // Apply alignment flags - for centering, set both align_items and justify_content
-        let alignment = (layout_flags >> 2) & 0x03;
-        match alignment {
-            1 => {
-                style.align_items = Some(AlignItems::Center);
-                style.justify_content = Some(JustifyContent::Center);
-                eprintln!("[TAFFY_LEGACY] Applied CENTER alignment: layout_flags=0x{:02X}, alignment_bits={}", layout_flags, alignment);
-            },
-            2 => {
-                style.align_items = Some(AlignItems::FlexEnd);
-                style.justify_content = Some(JustifyContent::FlexEnd);
-            },
+            kryon_core::ElementType::Button => {
+                style.display = Display::Block;
+                // Buttons get minimum sizing for flex containers
+                style.min_size.width = Dimension::Length(80.0);
+                style.min_size.height = Dimension::Length(40.0);
+            }
+            kryon_core::ElementType::Text => {
+                style.display = Display::Block;
+            }
             _ => {
-                style.align_items = Some(AlignItems::FlexStart);
-                style.justify_content = Some(JustifyContent::FlexStart);
-            },
-        }
-
-        // Apply grow flag - this is crucial for TabBar buttons!
-        if layout_flags & 0x20 != 0 {
-            style.flex_grow = 1.0;
+                style.display = Display::Block;
+            }
         }
         
-        // Handle button-specific sizing for flex containers  
-        if style.flex_grow > 0.0 {
-            // Elements with grow should have at least some minimum size
-            style.min_size.width = Dimension::Length(80.0); // Minimum button width for flex_grow elements
-            style.min_size.height = Dimension::Length(40.0); // Minimum button height
-            // eprintln!("[TAFFY_BUTTON] Applied minimum size to flex_grow element: min_width=80, min_height=40");
-        }
+        eprintln!("[TAFFY_DEFAULT] Element '{}' type={:?}: set display={:?}, flex_direction={:?}", 
+            element.id, element.element_type, style.display, style.flex_direction);
     }
 
     /// Cache computed layouts for all elements

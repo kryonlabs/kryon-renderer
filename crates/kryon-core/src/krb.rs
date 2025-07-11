@@ -15,6 +15,7 @@ pub struct KRBFile {
     pub template_variables: Vec<TemplateVariable>,
     pub template_bindings: Vec<TemplateBinding>,
     pub transforms: Vec<TransformData>,
+    pub fonts: HashMap<String, String>, // font_family -> font_path
 }
 
 #[derive(Debug)]
@@ -98,6 +99,60 @@ impl KRBParser {
             Self::create_default_app_wrapper(&mut elements)
         };
         
+        // Parse fonts from strings - look for adjacent font family and file patterns
+        let mut fonts = HashMap::new();
+        
+        for (i, string) in strings.iter().enumerate() {
+            // Look for font files (.ttf, .otf, etc.)
+            if string.ends_with(".ttf") || string.ends_with(".otf") || string.ends_with(".woff") || string.ends_with(".woff2") {
+                eprintln!("[KRB_FONT] Found font file at index {}: '{}'", i, string);
+                
+                // Look for a font family name in the preceding strings (within a reasonable range)
+                // Font declarations are stored as adjacent strings, but other strings may be interleaved
+                let mut found_font_name = false;
+                for j in (0..i).rev() {
+                    if i - j > 5 { break; } // Don't look too far back
+                    
+                    let potential_font_name = &strings[j];
+                    eprintln!("[KRB_FONT] Checking potential font name at index {}: '{}'", j, potential_font_name);
+                    
+                    // Font family names should be simple identifiers, not style names or other data
+                    // Based on the example, we expect 'calistoga' -> 'Calistoga-Regular.ttf'
+                    if !potential_font_name.is_empty() && 
+                       !potential_font_name.starts_with('#') && // Not a color
+                       !potential_font_name.contains('/') && // Not a path
+                       !potential_font_name.contains('\\') && // Not a Windows path
+                       !potential_font_name.ends_with(".ttf") && // Not itself a font file
+                       !potential_font_name.ends_with(".otf") &&
+                       !potential_font_name.ends_with("_font") && // Not a style name like "title_font"
+                       !potential_font_name.contains('.') && // Generally no dots in font names
+                       !potential_font_name.contains(' ') && // No spaces in font family names
+                       potential_font_name.len() < 32 && // Reasonable length
+                       potential_font_name.len() > 2 && // Not too short
+                       potential_font_name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+                        
+                        // Check if this looks like a font family name vs other identifiers
+                        // Font family names are typically lowercase and not UI element IDs
+                        if potential_font_name.chars().any(|c| c.is_lowercase()) &&
+                           potential_font_name != "default" { // "default" is too generic
+                            eprintln!("[KRB_FONT] Parsed font mapping: '{}' -> '{}'", potential_font_name, string);
+                            fonts.insert(potential_font_name.clone(), string.clone());
+                            found_font_name = true;
+                            break; // Take the first valid font name found
+                        } else {
+                            eprintln!("[KRB_FONT] Rejected font name (too generic or wrong pattern): '{}'", potential_font_name);
+                        }
+                    } else {
+                        eprintln!("[KRB_FONT] Rejected potential font name (invalid format): '{}'", potential_font_name);
+                    }
+                }
+                
+                if !found_font_name {
+                    eprintln!("[KRB_FONT] No valid font family name found for: '{}'", string);
+                }
+            }
+        }
+
         Ok(KRBFile {
             header,
             strings,
@@ -109,6 +164,7 @@ impl KRBParser {
             template_variables,
             template_bindings,
             transforms,
+            fonts,
         })
     }
     

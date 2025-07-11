@@ -216,28 +216,46 @@ fn main() -> Result<()> {
 }
 
 fn register_fonts_from_krb(renderer: &mut RaylibRenderer, krb_file: &kryon_core::KRBFile) {
-    // Look for font declarations in the KRB strings
-    // Based on the compiler implementation, font names and paths should be stored in strings
-    // We need to find patterns like "font_name" followed by "font_path.ttf"
+    // Register fonts using the font mappings stored in the KRB file
+    // The font mappings should be stored as key-value pairs in the fonts HashMap
     
-    for (i, string) in krb_file.strings.iter().enumerate() {
-        // Look for TTF font files
-        if string.ends_with(".ttf") || string.ends_with(".otf") {
-            // Look for the corresponding font name in previous strings
-            // The font name should be before the font path
-            for (j, font_name) in krb_file.strings.iter().enumerate() {
-                if j < i && !font_name.is_empty() && 
-                   !font_name.starts_with('#') && // Not a color
-                   !font_name.contains('/') && // Not a path
-                   !font_name.contains('.') && // Not a file
-                   font_name.len() < 32 && // Reasonable font name length
-                   font_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                    // This looks like a potential font name
-                    renderer.register_font(font_name, string);
-                    if let Err(e) = renderer.load_font(font_name) {
-                        eprintln!("[RAYLIB_FONT] Warning: Failed to load font '{}' from '{}': {}", font_name, string, e);
+    for (font_family, font_path) in &krb_file.fonts {
+        eprintln!("[RAYLIB_FONT] Found font mapping: '{}' -> '{}'", font_family, font_path);
+        renderer.register_font(font_family, font_path);
+        if let Err(e) = renderer.load_font(font_family) {
+            eprintln!("[RAYLIB_FONT] Warning: Failed to load font '{}' from '{}': {}", font_family, font_path, e);
+        }
+    }
+    
+    // If no font mappings found, fall back to scanning strings for font declarations
+    if krb_file.fonts.is_empty() {
+        eprintln!("[RAYLIB_FONT] No font mappings found in KRB file, scanning strings for font patterns");
+        
+        // Look for adjacent font family name and font file patterns
+        for (i, string) in krb_file.strings.iter().enumerate() {
+            // Look for font files (.ttf, .otf, etc.)
+            if string.ends_with(".ttf") || string.ends_with(".otf") || string.ends_with(".woff") || string.ends_with(".woff2") {
+                // Check the previous string as it should be the font family name
+                if i > 0 {
+                    let potential_font_name = &krb_file.strings[i - 1];
+                    
+                    // Font family names should be simple identifiers, not paths or other data
+                    if !potential_font_name.is_empty() && 
+                       !potential_font_name.starts_with('#') && // Not a color
+                       !potential_font_name.contains('/') && // Not a path
+                       !potential_font_name.contains('\\') && // Not a Windows path
+                       !potential_font_name.ends_with(".ttf") && // Not itself a font file
+                       !potential_font_name.ends_with(".otf") &&
+                       !potential_font_name.contains('.') && // Generally no dots in font names
+                       potential_font_name.len() < 32 && // Reasonable length
+                       potential_font_name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+                        
+                        eprintln!("[RAYLIB_FONT] Found font pattern: '{}' -> '{}'", potential_font_name, string);
+                        renderer.register_font(potential_font_name, string);
+                        if let Err(e) = renderer.load_font(potential_font_name) {
+                            eprintln!("[RAYLIB_FONT] Warning: Failed to load font '{}' from '{}': {}", potential_font_name, string, e);
+                        }
                     }
-                    break; // Only register the closest font name
                 }
             }
         }
