@@ -7,6 +7,7 @@ use kryon_core::{Element, ElementId};
 use glam::Vec2;
 use std::collections::HashMap;
 use taffy::prelude::*;
+use taffy::ResolveOrZero;
 use tracing::debug;
 
 /// Taffy-based layout engine that replaces the legacy flex layout system
@@ -231,6 +232,62 @@ impl TaffyLayoutEngine {
         if let Some(PropertyValue::String(value)) = element.custom_properties.get("grid_template_rows") {
             style.grid_template_rows = self.parse_grid_track_list(value);
         }
+        
+        // Grid template areas (Note: Taffy 0.5 may not have this field yet)
+        // TODO: Implement when Taffy adds grid-template-areas support
+        
+        // Grid auto columns/rows - TODO: Implement proper type conversion
+        // For now, skipping these as they require different types than TrackSizingFunction
+        if let Some(PropertyValue::String(_value)) = element.custom_properties.get("grid_auto_columns") {
+            // TODO: Implement grid_auto_columns when proper type conversion is available
+            // style.grid_auto_columns = ...;
+        }
+        if let Some(PropertyValue::String(_value)) = element.custom_properties.get("grid_auto_rows") {
+            // TODO: Implement grid_auto_rows when proper type conversion is available
+            // style.grid_auto_rows = ...;
+        }
+        
+        // Grid auto flow
+        if let Some(PropertyValue::String(value)) = element.custom_properties.get("grid_auto_flow") {
+            style.grid_auto_flow = match value.as_str() {
+                "row" => taffy::GridAutoFlow::Row,
+                "column" => taffy::GridAutoFlow::Column,
+                "row dense" => taffy::GridAutoFlow::RowDense,
+                "column dense" => taffy::GridAutoFlow::ColumnDense,
+                _ => taffy::GridAutoFlow::Row,
+            };
+        }
+        
+        // Grid area (shorthand for grid-row-start/end and grid-column-start/end)
+        if let Some(PropertyValue::String(value)) = element.custom_properties.get("grid_area") {
+            let (row_start, column_start, row_end, column_end) = self.parse_grid_area(value);
+            style.grid_row = taffy::Line { start: row_start, end: row_end };
+            style.grid_column = taffy::Line { start: column_start, end: column_end };
+        } else {
+            // Individual grid placement properties
+            if let Some(PropertyValue::String(value)) = element.custom_properties.get("grid_column_start") {
+                style.grid_column.start = self.parse_grid_line(value);
+            }
+            if let Some(PropertyValue::String(value)) = element.custom_properties.get("grid_column_end") {
+                style.grid_column.end = self.parse_grid_line(value);
+            }
+            if let Some(PropertyValue::String(value)) = element.custom_properties.get("grid_row_start") {
+                style.grid_row.start = self.parse_grid_line(value);
+            }
+            if let Some(PropertyValue::String(value)) = element.custom_properties.get("grid_row_end") {
+                style.grid_row.end = self.parse_grid_line(value);
+            }
+            
+            // Grid column/row shorthand
+            if let Some(PropertyValue::String(value)) = element.custom_properties.get("grid_column") {
+                let (start, end) = self.parse_grid_line_range(value);
+                style.grid_column = taffy::Line { start, end };
+            }
+            if let Some(PropertyValue::String(value)) = element.custom_properties.get("grid_row") {
+                let (start, end) = self.parse_grid_line_range(value);
+                style.grid_row = taffy::Line { start, end };
+            }
+        }
 
         // Flexbox properties
         if let Some(PropertyValue::String(value)) = element.custom_properties.get("flex_direction") {
@@ -242,6 +299,46 @@ impl TaffyLayoutEngine {
                 _ => FlexDirection::Row,
             };
         }
+        
+        // Flex wrap
+        if let Some(PropertyValue::String(value)) = element.custom_properties.get("flex_wrap") {
+            style.flex_wrap = match value.as_str() {
+                "nowrap" => FlexWrap::NoWrap,
+                "wrap" => FlexWrap::Wrap,
+                "wrap-reverse" => FlexWrap::WrapReverse,
+                _ => FlexWrap::NoWrap,
+            };
+        }
+        
+        // Flex basis
+        if let Some(value) = element.custom_properties.get("flex_basis") {
+            style.flex_basis = match value {
+                PropertyValue::String(s) => match s.as_str() {
+                    "auto" => Dimension::Auto,
+                    "content" => Dimension::Auto, // Taffy doesn't have content, use auto
+                    _ => {
+                        if s.ends_with("px") {
+                            if let Ok(px_value) = s.trim_end_matches("px").parse::<f32>() {
+                                Dimension::Length(px_value)
+                            } else {
+                                Dimension::Auto
+                            }
+                        } else if s.ends_with("%") {
+                            if let Ok(percent_value) = s.trim_end_matches("%").parse::<f32>() {
+                                Dimension::Percent(percent_value / 100.0)
+                            } else {
+                                Dimension::Auto
+                            }
+                        } else {
+                            Dimension::Auto
+                        }
+                    }
+                }
+                PropertyValue::Float(f) => Dimension::Length(*f),
+                PropertyValue::Int(i) => Dimension::Length(*i as f32),
+                _ => Dimension::Auto,
+            };
+        }
 
         if let Some(PropertyValue::String(value)) = element.custom_properties.get("align_items") {
             style.align_items = Some(match value.as_str() {
@@ -249,7 +346,34 @@ impl TaffyLayoutEngine {
                 "center" => AlignItems::Center,
                 "end" | "flex-end" => AlignItems::End,
                 "stretch" => AlignItems::Stretch,
+                "baseline" => AlignItems::Baseline,
                 _ => AlignItems::Start,
+            });
+        }
+        
+        // Align self (for individual flex items)
+        if let Some(PropertyValue::String(value)) = element.custom_properties.get("align_self") {
+            style.align_self = Some(match value.as_str() {
+                "start" | "flex-start" => AlignSelf::Start,
+                "center" => AlignSelf::Center,
+                "end" | "flex-end" => AlignSelf::End,
+                "stretch" => AlignSelf::Stretch,
+                "baseline" => AlignSelf::Baseline,
+                _ => AlignSelf::Start, // Default to start instead of auto
+            });
+        }
+        
+        // Align content (for wrapped flex lines)
+        if let Some(PropertyValue::String(value)) = element.custom_properties.get("align_content") {
+            style.align_content = Some(match value.as_str() {
+                "start" | "flex-start" => AlignContent::Start,
+                "center" => AlignContent::Center,
+                "end" | "flex-end" => AlignContent::End,
+                "stretch" => AlignContent::Stretch,
+                "space-between" => AlignContent::SpaceBetween,
+                "space-around" => AlignContent::SpaceAround,
+                "space-evenly" => AlignContent::SpaceEvenly,
+                _ => AlignContent::Start,
             });
         }
 
@@ -287,6 +411,18 @@ impl TaffyLayoutEngine {
             };
             style.flex_shrink = shrink_value;
         }
+        
+        // Flex order - TODO: Check if this is available in current Taffy version
+        if let Some(value) = element.custom_properties.get("order") {
+            let _order_value = match value {
+                PropertyValue::String(s) => s.parse::<i32>().unwrap_or(0),
+                PropertyValue::Int(i) => *i,
+                PropertyValue::Float(f) => *f as i32,
+                _ => 0,
+            };
+            // style.order = order_value; // TODO: Uncomment when Taffy supports this
+            eprintln!("[TAFFY_ORDER] Order property not yet supported in this Taffy version");
+        }
 
         // Position properties
         if let Some(PropertyValue::String(value)) = element.custom_properties.get("position") {
@@ -304,6 +440,155 @@ impl TaffyLayoutEngine {
                     width: LengthPercentage::Length(gap_value),
                     height: LengthPercentage::Length(gap_value),
                 };
+            }
+        }
+
+        // Box Model Properties
+
+        // Padding properties
+        if let Some(value) = element.custom_properties.get("padding") {
+            if let Some(padding_value) = value.as_float() {
+                let padding = LengthPercentage::Length(padding_value);
+                style.padding = Rect {
+                    left: padding,
+                    right: padding,
+                    top: padding,
+                    bottom: padding,
+                };
+            }
+        }
+
+        // Individual padding sides
+        if let Some(value) = element.custom_properties.get("padding_top") {
+            if let Some(val) = value.as_float() {
+                style.padding.top = LengthPercentage::Length(val);
+            }
+        }
+        if let Some(value) = element.custom_properties.get("padding_right") {
+            if let Some(val) = value.as_float() {
+                style.padding.right = LengthPercentage::Length(val);
+            }
+        }
+        if let Some(value) = element.custom_properties.get("padding_bottom") {
+            if let Some(val) = value.as_float() {
+                style.padding.bottom = LengthPercentage::Length(val);
+            }
+        }
+        if let Some(value) = element.custom_properties.get("padding_left") {
+            if let Some(val) = value.as_float() {
+                style.padding.left = LengthPercentage::Length(val);
+            }
+        }
+
+        // Margin properties
+        if let Some(value) = element.custom_properties.get("margin") {
+            if let Some(margin_value) = value.as_float() {
+                let margin = LengthPercentage::Length(margin_value).into();
+                style.margin = Rect {
+                    left: margin,
+                    right: margin,
+                    top: margin,
+                    bottom: margin,
+                };
+            }
+        }
+
+        // Individual margin sides
+        if let Some(value) = element.custom_properties.get("margin_top") {
+            if let Some(val) = value.as_float() {
+                style.margin.top = LengthPercentage::Length(val).into();
+            }
+        }
+        if let Some(value) = element.custom_properties.get("margin_right") {
+            if let Some(val) = value.as_float() {
+                style.margin.right = LengthPercentage::Length(val).into();
+            }
+        }
+        if let Some(value) = element.custom_properties.get("margin_bottom") {
+            if let Some(val) = value.as_float() {
+                style.margin.bottom = LengthPercentage::Length(val).into();
+            }
+        }
+        if let Some(value) = element.custom_properties.get("margin_left") {
+            if let Some(val) = value.as_float() {
+                style.margin.left = LengthPercentage::Length(val).into();
+            }
+        }
+
+        // Border properties
+        if let Some(value) = element.custom_properties.get("border_width") {
+            if let Some(border_value) = value.as_float() {
+                let border = LengthPercentage::Length(border_value);
+                style.border = Rect {
+                    left: border,
+                    right: border,
+                    top: border,
+                    bottom: border,
+                };
+            }
+        }
+
+        // Individual border width sides
+        if let Some(value) = element.custom_properties.get("border_top_width") {
+            if let Some(val) = value.as_float() {
+                style.border.top = LengthPercentage::Length(val);
+            }
+        }
+        if let Some(value) = element.custom_properties.get("border_right_width") {
+            if let Some(val) = value.as_float() {
+                style.border.right = LengthPercentage::Length(val);
+            }
+        }
+        if let Some(value) = element.custom_properties.get("border_bottom_width") {
+            if let Some(val) = value.as_float() {
+                style.border.bottom = LengthPercentage::Length(val);
+            }
+        }
+        if let Some(value) = element.custom_properties.get("border_left_width") {
+            if let Some(val) = value.as_float() {
+                style.border.left = LengthPercentage::Length(val);
+            }
+        }
+
+        // Box sizing property
+        if let Some(PropertyValue::String(value)) = element.custom_properties.get("box_sizing") {
+            match value.as_str() {
+                "border-box" => {
+                    // Implement border-box sizing by adjusting size constraints
+                    // In border-box, width/height include padding and border
+                    if let Some(width_value) = element.custom_properties.get("width") {
+                        if let Some(width) = width_value.as_float() {
+                            // Calculate content width by subtracting padding and border
+                            let padding_left = style.padding.left.resolve_or_zero(Some(width));
+                            let padding_right = style.padding.right.resolve_or_zero(Some(width));
+                            let border_left = style.border.left.resolve_or_zero(Some(width));
+                            let border_right = style.border.right.resolve_or_zero(Some(width));
+                            
+                            let content_width = width - padding_left - padding_right - border_left - border_right;
+                            style.size.width = Dimension::Length(content_width.max(0.0));
+                        }
+                    }
+                    
+                    if let Some(height_value) = element.custom_properties.get("height") {
+                        if let Some(height) = height_value.as_float() {
+                            // Calculate content height by subtracting padding and border
+                            let padding_top = style.padding.top.resolve_or_zero(Some(height));
+                            let padding_bottom = style.padding.bottom.resolve_or_zero(Some(height));
+                            let border_top = style.border.top.resolve_or_zero(Some(height));
+                            let border_bottom = style.border.bottom.resolve_or_zero(Some(height));
+                            
+                            let content_height = height - padding_top - padding_bottom - border_top - border_bottom;
+                            style.size.height = Dimension::Length(content_height.max(0.0));
+                        }
+                    }
+                    
+                    eprintln!("[TAFFY_BOX_MODEL] Applied border-box sizing calculations");
+                }
+                "content-box" => {
+                    // This is the default behavior in Taffy
+                    eprintln!("[TAFFY_BOX_MODEL] Using content-box sizing (default)");
+                }
+                _ => {}
             }
         }
     }
@@ -434,6 +719,127 @@ impl TaffyLayoutEngine {
         }
         
         tracks
+    }
+    
+    /// Parse grid template areas
+    fn parse_grid_template_areas(&self, value: &str) -> Vec<Vec<String>> {
+        let mut areas = Vec::new();
+        
+        // Split by lines and parse each row
+        for line in value.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            
+            // Remove quotes if present
+            let line_content = if trimmed.starts_with('"') && trimmed.ends_with('"') {
+                &trimmed[1..trimmed.len()-1]
+            } else {
+                trimmed
+            };
+            
+            // Split by whitespace to get area names
+            let row_areas: Vec<String> = line_content
+                .split_whitespace()
+                .map(|s| s.to_string())
+                .collect();
+            
+            if !row_areas.is_empty() {
+                areas.push(row_areas);
+            }
+        }
+        
+        areas
+    }
+    
+    /// Parse grid area shorthand (e.g., "2 / 1 / 4 / 3" or "header")
+    fn parse_grid_area(&self, value: &str) -> (taffy::GridPlacement, taffy::GridPlacement, taffy::GridPlacement, taffy::GridPlacement) {
+        let trimmed = value.trim();
+        
+        // Check if it's a named area
+        if !trimmed.contains('/') {
+            // Named area reference - for now, treat as auto since Taffy may not support named areas yet
+            let placement = taffy::GridPlacement::Auto;
+            return (placement, placement, placement, placement);
+        }
+        
+        // Parse positional values (row-start / column-start / row-end / column-end)
+        let parts: Vec<&str> = trimmed.split('/').map(|s| s.trim()).collect();
+        
+        match parts.len() {
+            1 => {
+                // Single value applies to all
+                let placement = self.parse_grid_line(parts[0]);
+                (placement, placement, placement, placement)
+            }
+            2 => {
+                // Two values: row-start/end, column-start/end
+                let row_placement = self.parse_grid_line(parts[0]);
+                let column_placement = self.parse_grid_line(parts[1]);
+                (row_placement, column_placement, row_placement, column_placement)
+            }
+            3 => {
+                // Three values: row-start, column-start/end, row-end
+                let row_start = self.parse_grid_line(parts[0]);
+                let column_placement = self.parse_grid_line(parts[1]);
+                let row_end = self.parse_grid_line(parts[2]);
+                (row_start, column_placement, row_end, column_placement)
+            }
+            4 => {
+                // Four values: row-start, column-start, row-end, column-end
+                let row_start = self.parse_grid_line(parts[0]);
+                let column_start = self.parse_grid_line(parts[1]);
+                let row_end = self.parse_grid_line(parts[2]);
+                let column_end = self.parse_grid_line(parts[3]);
+                (row_start, column_start, row_end, column_end)
+            }
+            _ => {
+                // Invalid format, return auto
+                let auto_placement = taffy::GridPlacement::Auto;
+                (auto_placement, auto_placement, auto_placement, auto_placement)
+            }
+        }
+    }
+    
+    /// Parse a single grid line (e.g., "2", "span 3", "auto", "header")
+    fn parse_grid_line(&self, value: &str) -> taffy::GridPlacement {
+        let trimmed = value.trim();
+        
+        if trimmed == "auto" {
+            return taffy::GridPlacement::Auto;
+        }
+        
+        if trimmed.starts_with("span ") {
+            if let Ok(span_count) = trimmed.strip_prefix("span ").unwrap().parse::<u16>() {
+                return taffy::GridPlacement::Span(span_count);
+            }
+        }
+        
+        if let Ok(line_number) = trimmed.parse::<i16>() {
+            return taffy::GridPlacement::Line(line_number.into());
+        }
+        
+        // Try parsing as named line - for now, treat as auto
+        taffy::GridPlacement::Auto
+    }
+    
+    /// Parse grid line range (e.g., "1 / 3", "span 2", "header / footer")
+    fn parse_grid_line_range(&self, value: &str) -> (taffy::GridPlacement, taffy::GridPlacement) {
+        let trimmed = value.trim();
+        
+        if trimmed.contains('/') {
+            let parts: Vec<&str> = trimmed.split('/').map(|s| s.trim()).collect();
+            if parts.len() == 2 {
+                let start = self.parse_grid_line(parts[0]);
+                let end = self.parse_grid_line(parts[1]);
+                return (start, end);
+            }
+        }
+        
+        // Single value - treat as start, end is auto
+        let start = self.parse_grid_line(trimmed);
+        (start, taffy::GridPlacement::Auto)
     }
 
     /// Recursively compute absolute positions by accumulating parent offsets

@@ -1025,6 +1025,42 @@ impl KRBParser {
                     for _ in 0..size { self.read_u8(); }
                 }
             }
+            0x2B => { // InputType
+                if size == 1 && value_type == 0x09 { // Enum type
+                    let input_type_value = self.read_u8();
+                    // Map the enum value to a string representation
+                    let input_type_name = match input_type_value {
+                        0x00 => "text",
+                        0x01 => "password",
+                        0x02 => "email",
+                        0x03 => "number",
+                        0x04 => "tel",
+                        0x05 => "url",
+                        0x06 => "search",
+                        0x10 => "checkbox",
+                        0x11 => "radio",
+                        0x20 => "range",
+                        0x30 => "date",
+                        0x31 => "datetime-local",
+                        0x32 => "month",
+                        0x33 => "time",
+                        0x34 => "week",
+                        0x40 => "color",
+                        0x41 => "file",
+                        0x42 => "hidden",
+                        0x50 => "submit",
+                        0x51 => "reset",
+                        0x52 => "button",
+                        0x53 => "image",
+                        _ => "text", // Default to text for unknown types
+                    };
+                    element.custom_properties.insert("input_type".to_string(), PropertyValue::String(input_type_name.to_string()));
+                    eprintln!("[PROP] InputType: '{}' (0x{:02X})", input_type_name, input_type_value);
+                } else {
+                    eprintln!("[PROP] InputType: size mismatch or wrong type, expected size=1 type=0x09, got size={} type=0x{:02X}, skipping", size, value_type);
+                    for _ in 0..size { self.read_u8(); }
+                }
+            }
             // Modern Taffy layout properties (0x40-0x4F range)
             0x40 => { // Display
                 if size == 1 {

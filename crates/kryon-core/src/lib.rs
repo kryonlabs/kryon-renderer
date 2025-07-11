@@ -2,6 +2,8 @@
 pub mod krb;
 pub mod elements;
 pub mod properties;
+pub mod property_registry;
+pub mod property_cache;
 pub mod resources;
 pub mod events;
 pub mod style;
@@ -10,6 +12,8 @@ pub mod layout_units;
 
 pub use elements::*;
 pub use properties::*;
+pub use property_registry::*;
+pub use property_cache::*;
 pub use krb::*;
 pub use resources::*;
 pub use events::*;

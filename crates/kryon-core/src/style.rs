@@ -63,6 +63,7 @@ pub struct StyleComputer {
     elements: HashMap<ElementId, Element>,
     styles: HashMap<u8, Style>,
     cache: RefCell<HashMap<(ElementId, crate::InteractionState), ComputedStyle>>,
+    property_registry: crate::PropertyRegistry,
 }
 
 impl StyleComputer {
@@ -71,36 +72,114 @@ impl StyleComputer {
             elements: elements.clone(),
             styles: styles.clone(),
             cache: RefCell::new(HashMap::new()),
+            property_registry: crate::PropertyRegistry::new(),
         }
     }
     
     /// Determines if a property should be inherited from parent to child
-    fn _is_property_inheritable(property_id: u8) -> bool {
-        match property_id {
-            // Inheritable properties (CSS-like inheritance)
-            0x02 => true, // text_color
-            0x09 => true, // font_size
-            0x0A => true, // font_weight
-            0x0B => true, // text_alignment
-            0x0D => true, // opacity
-            0x0F => true, // visibility
-            0x29 => true, // cursor
-            
-            // Non-inheritable properties
-            0x01 => false, // background_color
-            0x03 => false, // border_color
-            0x04 => false, // border_width
-            0x05 => false, // border_radius
-            0x06 => false, // padding
-            0x07 => false, // margin
-            0x19 => false, // width
-            0x1A => false, // layout_flags
-            0x1B => false, // height
-            0x50..=0x5F => false, // position properties
-            0x40..=0x4F => false, // layout properties
-            
-            // Default to non-inheritable for unknown properties
-            _ => false,
+    /// Now uses the unified PropertyRegistry instead of hardcoded match
+    fn is_property_inheritable(&self, property_id: u8) -> bool {
+        let property_enum = crate::PropertyId::from(property_id);
+        self.property_registry.is_inheritable(property_enum)
+    }
+    
+    /// Apply a property value to computed style using the PropertyRegistry
+    fn apply_property_to_computed_style(
+        &self, 
+        computed_style: &mut ComputedStyle, 
+        property_id: u8, 
+        prop_value: &PropertyValue,
+        state: crate::InteractionState
+    ) {
+        let property_enum = crate::PropertyId::from(property_id);
+        
+        match property_enum {
+            crate::PropertyId::BackgroundColor => {
+                if state != crate::InteractionState::Checked {
+                    if let Some(c) = prop_value.as_color() { 
+                        computed_style.background_color = c; 
+                    }
+                }
+            }
+            crate::PropertyId::TextColor => {
+                if state != crate::InteractionState::Checked {
+                    if let Some(c) = prop_value.as_color() { 
+                        computed_style.text_color = c; 
+                    }
+                }
+            }
+            crate::PropertyId::BorderColor => {
+                if let Some(c) = prop_value.as_color() { 
+                    computed_style.border_color = c; 
+                }
+            }
+            crate::PropertyId::BorderWidth => {
+                if let Some(f) = prop_value.as_float() { 
+                    computed_style.border_width = f; 
+                }
+            }
+            crate::PropertyId::BorderRadius => {
+                if let Some(f) = prop_value.as_float() { 
+                    computed_style.border_radius = f; 
+                }
+            }
+            crate::PropertyId::FontSize => {
+                if let Some(f) = prop_value.as_float() { 
+                    computed_style.font_size = f; 
+                }
+            }
+            crate::PropertyId::FontWeight => {
+                if let Some(i) = prop_value.as_int() {
+                    computed_style.font_weight = match i {
+                        300 => crate::FontWeight::Light,
+                        400 => crate::FontWeight::Normal,
+                        700 => crate::FontWeight::Bold,
+                        900 => crate::FontWeight::Heavy,
+                        _ => crate::FontWeight::Normal,
+                    };
+                }
+            }
+            crate::PropertyId::TextAlignment => {
+                if let Some(s) = prop_value.as_string() {
+                    computed_style.text_alignment = match s {
+                        "start" => crate::TextAlignment::Start,
+                        "center" => crate::TextAlignment::Center,
+                        "end" => crate::TextAlignment::End,
+                        "justify" => crate::TextAlignment::Justify,
+                        _ => crate::TextAlignment::Start,
+                    };
+                }
+            }
+            crate::PropertyId::Opacity => {
+                if let Some(f) = prop_value.as_float() {
+                    computed_style.opacity = f.clamp(0.0, 1.0); 
+                }
+            }
+            crate::PropertyId::Visibility => {
+                if let Some(b) = prop_value.as_bool() {
+                    computed_style.visible = b;
+                }
+            }
+            crate::PropertyId::Cursor => {
+                if let Some(s) = prop_value.as_string() {
+                    computed_style.cursor = match s {
+                        "default" => crate::CursorType::Default,
+                        "pointer" => crate::CursorType::Pointer,
+                        "text" => crate::CursorType::Text,
+                        "move" => crate::CursorType::Move,
+                        "not-allowed" => crate::CursorType::NotAllowed,
+                        _ => crate::CursorType::Default,
+                    };
+                }
+            }
+            // Properties that need different handling (layout properties)
+            crate::PropertyId::Width | crate::PropertyId::Height | crate::PropertyId::OldLayoutFlags => {
+                // These properties need to be applied to the element directly, not computed style
+                // For now, skip them - they'll be handled by the element update system
+            }
+            _ => {
+                // Unknown or unsupported property - could log a warning here
+            }
         }
     }
     /// Computes the final style for a given element, using caching for performance.
@@ -147,85 +226,9 @@ impl StyleComputer {
         // STEP 2: Apply Its Own Style Block (but only for non-interactive states)
         if element.style_id > 0 {
             if let Some(style_block) = self.styles.get(&element.style_id) {
-                // Apply all properties from the referenced style block
+                // Apply all properties from the referenced style block using PropertyRegistry
                 for (prop_id, prop_value) in &style_block.properties {
-                    match *prop_id {
-                        0x01 => { 
-                            // For checked state, don't override background with style block
-                            if state != crate::InteractionState::Checked {
-                                if let Some(c) = prop_value.as_color() { 
-                                    computed_style.background_color = c; 
-                                }
-                            }
-                        }
-                        0x02 => { 
-                            // For checked state, don't override text color with style block  
-                            if state != crate::InteractionState::Checked {
-                                if let Some(c) = prop_value.as_color() { 
-                                    computed_style.text_color = c; 
-                                }
-                            }
-                        }
-                        0x03 => if let Some(c) = prop_value.as_color() { 
-                            computed_style.border_color = c; 
-                        }
-                        0x04 => if let Some(f) = prop_value.as_float() { 
-                            computed_style.border_width = f; 
-                        }
-                        0x05 => if let Some(f) = prop_value.as_float() { 
-                            computed_style.border_radius = f; 
-                        }
-                        0x09 => if let Some(f) = prop_value.as_float() { 
-                            computed_style.font_size = f; 
-                        }
-                        0x0A => if let Some(i) = prop_value.as_int() {
-                            computed_style.font_weight = match i {
-                                300 => crate::FontWeight::Light,
-                                400 => crate::FontWeight::Normal,
-                                700 => crate::FontWeight::Bold,
-                                900 => crate::FontWeight::Heavy,
-                                _ => crate::FontWeight::Normal,
-                            };
-                        }
-                        0x0B => if let Some(s) = prop_value.as_string() {
-                            computed_style.text_alignment = match s {
-                                "start" => crate::TextAlignment::Start,
-                                "center" => crate::TextAlignment::Center,
-                                "end" => crate::TextAlignment::End,
-                                "justify" => crate::TextAlignment::Justify,
-                                _ => crate::TextAlignment::Start,
-                            };
-                        }
-                        0x0D => if let Some(f) = prop_value.as_float() {
-                            computed_style.opacity = f.clamp(0.0, 1.0); 
-                        }
-                        0x0F => if let Some(b) = prop_value.as_bool() {
-                            computed_style.visible = b;
-                        }
-                        0x19 => {
-                            // Width property - need to apply to element size
-                            // Since we can't modify element here, we'll need a different approach
-                        }
-                        0x1A => {
-                            // Layout flags - need to apply to element layout
-                            // Since we can't modify element here, we'll need a different approach  
-                        }
-                        0x1B => {
-                            // Height property - need to apply to element size
-                            // Since we can't modify element here, we'll need a different approach
-                        }
-                        0x29 => if let Some(s) = prop_value.as_string() {
-                            computed_style.cursor = match s {
-                                "default" => crate::CursorType::Default,
-                                "pointer" => crate::CursorType::Pointer,
-                                "text" => crate::CursorType::Text,
-                                "move" => crate::CursorType::Move,
-                                "not-allowed" => crate::CursorType::NotAllowed,
-                                _ => crate::CursorType::Default,
-                            };
-                        }
-                        _ => {}
-                    }
+                    self.apply_property_to_computed_style(&mut computed_style, *prop_id, prop_value, state);
                 }
             }
         }

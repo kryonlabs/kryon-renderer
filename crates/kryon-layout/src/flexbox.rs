@@ -1,15 +1,5 @@
 // crates/kryon-layout/src/flexbox.rs
-use kryon_core::ElementId;
-
-#[derive(Debug, Clone)]
-pub struct FlexItem {
-    pub element_id: ElementId,
-    pub flex_basis: f32,
-    pub flex_grow: f32,
-    pub flex_shrink: f32,
-    pub main_axis_size: f32,
-    pub cross_axis_size: f32,
-}
+// FlexItem struct removed - was only used by legacy FlexboxLayoutEngine
 
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutFlags {
