@@ -1021,3 +1021,17 @@ fn resolve_image_path_static(path: &str) -> Option<String> {
     eprintln!("[RAYLIB] Image not found in any location: {}", path);
     None
 }
+
+impl Drop for RaylibRenderer {
+    fn drop(&mut self) {
+        // Clean up all loaded textures before raylib context is destroyed
+        eprintln!("[RAYLIB] Cleaning up {} textures", self.textures.len());
+        self.textures.clear();
+        
+        // Clean up all loaded fonts before raylib context is destroyed
+        eprintln!("[RAYLIB] Cleaning up {} fonts", self.fonts.len());
+        self.fonts.clear();
+        
+        eprintln!("[RAYLIB] Resource cleanup complete");
+    }
+}
