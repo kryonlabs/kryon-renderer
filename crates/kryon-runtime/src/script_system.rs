@@ -3,21 +3,34 @@ use kryon_core::{ScriptEntry, Element, ElementId, PropertyValue, KRBFile};
 use std::collections::HashMap;
 use std::time::Duration;
 use anyhow::Result;
+#[cfg(feature = "lua-vm")]
 use mlua::Lua;
 
 #[derive(Debug)]
 pub struct ScriptSystem {
     scripts: Vec<ScriptEntry>,
     state: HashMap<String, PropertyValue>,
+    #[cfg(feature = "lua-vm")]
     lua: Lua,
 }
 
 impl ScriptSystem {
     pub fn new() -> Self {
-        let lua = Lua::new();
+        let mut system = Self {
+            scripts: Vec::new(),
+            state: HashMap::new(),
+            lua: Lua::new(),
+        };
         
-        // Setup custom print function that forwards to stdout
-        let _ = lua.globals().set("print", lua.create_function(|_, args: mlua::Variadic<mlua::Value>| {
+        // Setup custom print function
+        system.setup_print_function().expect("Failed to setup print function");
+        
+        system
+    }
+    
+    /// Setup or re-setup the custom print function
+    fn setup_print_function(&mut self) -> Result<()> {
+        let print_function = self.lua.create_function(|_, args: mlua::Variadic<mlua::Value>| {
             let mut output = Vec::new();
             for arg in args {
                 match arg {
@@ -31,28 +44,82 @@ impl ScriptSystem {
             }
             println!("{}", output.join("\t"));
             Ok(())
-        }).unwrap()).unwrap();
+        })?;
         
-        Self {
-            scripts: Vec::new(),
-            state: HashMap::new(),
-            lua,
-        }
+        self.lua.globals().set("print", print_function)?;
+        tracing::debug!("🔧 [SCRIPT_DEBUG] Print function (re)established");
+        Ok(())
     }
     
     pub fn load_scripts(&mut self, scripts: &[ScriptEntry]) -> Result<()> {
+        tracing::info!("🔍 [SCRIPT_LOAD] Loading {} scripts", scripts.len());
         self.scripts = scripts.to_vec();
         
-        for script in &self.scripts {
+        for (i, script) in self.scripts.iter().enumerate() {
+            tracing::info!("🔍 [SCRIPT_LOAD] Script {}: name='{}', language='{}', entry_points={:?}", 
+                i, script.name, script.language, script.entry_points);
+            tracing::info!("🔍 [SCRIPT_LOAD] Script {}: code length={}, code preview: {:?}", 
+                i, script.code.len(), script.code.chars().take(100).collect::<String>());
+            tracing::info!("🔍 [SCRIPT_LOAD] Full script code for '{}':\n{}", script.name, script.code);
+            
             // Load Lua scripts into the Lua context
             if script.language == "lua" && !script.code.is_empty() && !script.code.starts_with("external:") {
+                tracing::info!("✅ [SCRIPT_LOAD] Loading Lua script '{}'...", script.name);
+                
                 // Execute the script to load the functions
                 match self.lua.load(&script.code).exec() {
                     Ok(()) => {
-                        // Remove script load logs
+                        tracing::info!("✅ [SCRIPT_LOAD] Successfully loaded Lua script '{}'", script.name);
+                        
+                        // Verify the functions are available in global context
+                        for entry_point in &script.entry_points {
+                            if let Ok(_) = self.lua.globals().get::<_, mlua::Function>(entry_point.as_str()) {
+                                tracing::info!("✅ [SCRIPT_LOAD] Function '{}' available in Lua context", entry_point);
+                            } else {
+                                tracing::error!("❌ [SCRIPT_LOAD] Function '{}' NOT found in Lua context after loading", entry_point);
+                            }
+                        }
+                        
+                        // Note: Auto-execution of init functions moved to execute_init_functions() 
+                        // which is called after template variables are initialized
                     }
                     Err(e) => {
-                        tracing::error!("Failed to load Lua script '{}': {}", script.name, e);
+                        tracing::error!("❌ [SCRIPT_LOAD] Failed to load Lua script '{}': {}", script.name, e);
+                        tracing::error!("❌ [SCRIPT_LOAD] Script content: {}", script.code);
+                    }
+                }
+            } else {
+                tracing::info!("⏭️ [SCRIPT_LOAD] Skipping script '{}': not Lua or empty/external", script.name);
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Execute initialization functions after template variables are set up
+    pub fn execute_init_functions(&mut self) -> Result<()> {
+        tracing::info!("🚀 [SCRIPT_INIT] Executing initialization functions after template setup");
+        
+        for script in &self.scripts {
+            for entry_point in &script.entry_points {
+                if entry_point.ends_with("_init") || entry_point == "init" {
+                    tracing::info!("🚀 [SCRIPT_INIT] Auto-executing initialization function: {}", entry_point);
+                    if script.language == "lua" {
+                        match self.lua.globals().get::<_, mlua::Function>(entry_point.as_str()) {
+                            Ok(lua_function) => {
+                                match lua_function.call::<_, ()>(()) {
+                                    Ok(()) => {
+                                        tracing::info!("✅ [SCRIPT_INIT] Successfully auto-executed initialization function: {}", entry_point);
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("❌ [SCRIPT_INIT] Failed to execute {}: {}", entry_point, e);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("❌ [SCRIPT_INIT] Initialization function '{}' not found: {}", entry_point, e);
+                            }
+                        }
                     }
                 }
             }
@@ -437,30 +504,58 @@ impl ScriptSystem {
     }
     
     pub fn call_function(&mut self, function_name: &str, _args: Vec<PropertyValue>) -> Result<()> {
+        tracing::info!("🔍 [SCRIPT_DEBUG] Attempting to call function: '{}'", function_name);
+        tracing::info!("🔍 [SCRIPT_DEBUG] Available scripts: {}", self.scripts.len());
+        
         // Find the script that contains this function
-        for script in &self.scripts {
+        for (i, script) in self.scripts.iter().enumerate() {
+            tracing::info!("🔍 [SCRIPT_DEBUG] Script {}: language='{}', entry_points={:?}", 
+                i, script.language, script.entry_points);
+            
             if script.entry_points.contains(&function_name.to_string()) {
+                tracing::info!("✅ [SCRIPT_DEBUG] Found function '{}' in script {}", function_name, i);
+                
                 // Execute the Lua function
                 if script.language == "lua" {
+                    tracing::info!("🔍 [SCRIPT_DEBUG] Attempting to get Lua function from global context");
                     match self.lua.globals().get::<_, mlua::Function>(function_name) {
                         Ok(lua_function) => {
+                            tracing::info!("✅ [SCRIPT_DEBUG] Successfully retrieved Lua function, executing...");
                             match lua_function.call::<_, ()>(()) {
                                 Ok(()) => {
-                                    // Remove debug logs
+                                    tracing::info!("✅ [SCRIPT_DEBUG] Lua function '{}' executed successfully!", function_name);
                                 }
                                 Err(e) => {
-                                    tracing::error!("Error executing Lua function '{}': {}", function_name, e);
+                                    tracing::error!("❌ [SCRIPT_DEBUG] Error executing Lua function '{}': {}", function_name, e);
                                 }
                             }
                         }
                         Err(e) => {
-                            tracing::error!("Lua function '{}' not found: {}", function_name, e);
+                            tracing::error!("❌ [SCRIPT_DEBUG] Lua function '{}' not found in global context: {}", function_name, e);
+                            
+                            // Debug: List all available globals
+                            let globals = self.lua.globals().pairs::<mlua::Value, mlua::Value>();
+                            tracing::info!("🔍 [SCRIPT_DEBUG] Available Lua globals:");
+                            for pair in globals {
+                                if let Ok((key, _)) = pair {
+                                    if let mlua::Value::String(key_str) = key {
+                                        if let Ok(key_name) = key_str.to_str() {
+                                            tracing::info!("  - {}", key_name);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
+                } else {
+                    tracing::warn!("🔍 [SCRIPT_DEBUG] Script language '{}' is not Lua, skipping", script.language);
                 }
                 break;
             }
         }
+        
+        // If we reach here without finding the function
+        tracing::warn!("⚠️ [SCRIPT_DEBUG] Function '{}' not found in any script entry points", function_name);
         
         Ok(())
     }
@@ -581,14 +676,17 @@ impl ScriptSystem {
     
     /// Initialize template variables in the Lua context as reactive variables
     pub fn initialize_template_variables(&mut self, variables: &HashMap<String, String>) -> Result<()> {
-        let globals = self.lua.globals();
+        tracing::info!("🔍 [TEMPLATE_INIT] Initializing {} template variables", variables.len());
+        for (name, value) in variables {
+            tracing::info!("🔍 [TEMPLATE_INIT] Variable: '{}' = '{}'", name, value);
+        }
         
         // Create the _template_variables table (internal storage)
         let template_vars_table = self.lua.create_table()?;
         for (name, value) in variables {
             template_vars_table.set(name.clone(), value.clone())?;
         }
-        globals.set("_template_variables", template_vars_table)?;
+        self.lua.globals().set("_template_variables", template_vars_table)?;
         
         // Create reactive variables using metamethods
         let reactive_setup_code = r#"
@@ -605,6 +703,10 @@ impl ScriptSystem {
                             value = tostring(new_value)
                             _template_variable_changes[name] = value
                             _template_variables[name] = value
+                            -- Immediately notify the template engine for instant UI updates
+                            if _immediate_template_update then
+                                _immediate_template_update(name, value)
+                            end
                         end
                     end,
                     __tostring = function() return value end,
@@ -673,6 +775,47 @@ impl ScriptSystem {
         "#;
         
         self.lua.load(reactive_setup_code).exec()?;
+        
+        // Set up immediate template update callback for reactive variables
+        self.setup_immediate_template_update_callback()?;
+        
+        // Ensure the print function is properly available after reactive setup
+        self.setup_print_function()?;
+        
+        // Debug: Test print function after reactive setup
+        tracing::info!("🔍 [TEMPLATE_DEBUG] Testing print function after reactive setup...");
+        match self.lua.load(r#"print("🧪 [TEMPLATE_DEBUG] Print function test after reactive setup")"#).exec() {
+            Ok(()) => tracing::info!("✅ [TEMPLATE_DEBUG] Print function works after reactive setup"),
+            Err(e) => tracing::error!("❌ [TEMPLATE_DEBUG] Print function failed after reactive setup: {}", e),
+        }
+        
+        // Debug: Check if template variables are accessible
+        tracing::info!("🔍 [TEMPLATE_DEBUG] Reactive template variable system initialized");
+        for (name, _value) in variables {
+            match self.lua.globals().get::<_, mlua::Value>(name.as_str()) {
+                Ok(val) => tracing::info!("✅ [TEMPLATE_DEBUG] Variable '{}' accessible: {:?}", name, val),
+                Err(e) => tracing::error!("❌ [TEMPLATE_DEBUG] Variable '{}' not accessible: {}", name, e),
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Set up the immediate template update callback function in Lua
+    fn setup_immediate_template_update_callback(&mut self) -> Result<()> {
+        // For now, this is a placeholder - the immediate update logic will be handled
+        // by applying reactive changes immediately in the main update loop
+        let callback_setup = r#"
+            -- Placeholder for immediate update callback
+            -- This will be handled by the Rust side during script execution
+            _immediate_template_update = function(name, value)
+                -- Changes are already queued in _template_variable_changes
+                -- The Rust side will process them immediately after script execution
+            end
+        "#;
+        
+        self.lua.load(callback_setup).exec()?;
+        tracing::debug!("🔧 [SCRIPT_DEBUG] Immediate template update callback established");
         Ok(())
     }
     
