@@ -59,6 +59,10 @@ impl<R: CommandRenderer> KryonApp<R> {
     
     pub fn new_with_layout_engine(krb_path: &str, renderer: R, layout_engine: Option<Box<dyn LayoutEngine>>) -> anyhow::Result<Self> {
         let krb_file = load_krb_file(krb_path)?;
+        Self::new_with_krb(krb_file, renderer, layout_engine)
+    }
+    
+    pub fn new_with_krb(krb_file: KRBFile, renderer: R, layout_engine: Option<Box<dyn LayoutEngine>>) -> anyhow::Result<Self> {
         let mut elements = krb_file.elements.clone();
         
         let style_computer = StyleComputer::new(&elements, &krb_file.styles);
@@ -108,9 +112,19 @@ impl<R: CommandRenderer> KryonApp<R> {
         app.script_system.load_scripts(&app.krb_file.scripts)?;
         
         // Initialize template variables in the script system
+        // Always initialize template variables from KRB data to ensure script access
         if app.template_engine.has_bindings() {
+            tracing::info!("🔍 [INIT_DEBUG] Template engine has bindings, using template variables");
             let template_vars = app.template_engine.get_variables();
             app.script_system.initialize_template_variables(template_vars)?;
+        } else {
+            tracing::info!("🔍 [INIT_DEBUG] Template engine has no bindings, extracting variables from KRB");
+            // Extract template variables directly from KRB data
+            let mut vars = std::collections::HashMap::new();
+            for var in &app.krb_file.template_variables {
+                vars.insert(var.name.clone(), var.default_value.clone());
+            }
+            app.script_system.initialize_template_variables(&vars)?;
         }
         
         // Apply any initial visibility changes set by scripts during initialization
@@ -121,6 +135,9 @@ impl<R: CommandRenderer> KryonApp<R> {
         
         // Initialize template variables (apply default values to elements)
         app.initialize_template_variables()?;
+        
+        // Execute script initialization functions now that template variables are ready
+        app.script_system.execute_init_functions()?;
         
         // Force initial layout computation
         app.update_layout()?;
@@ -336,6 +353,14 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
                         if style_changes || state_changes || text_changes || visibility_changes || template_variable_changes {
                             tracing::info!("Changes applied, triggering re-render");
                             self.needs_render = true;
+                            
+                            // Force immediate layout update for template variable changes
+                            // This ensures that reactive template variables update immediately
+                            if template_variable_changes && self.needs_layout {
+                                self.update_layout()?;
+                                self.needs_layout = false;
+                                tracing::info!("🚀 [SCRIPT_IMMEDIATE] Immediate layout update applied for template variable changes");
+                            }
                         }
                         
                         // After script changes are applied, set hover state only for non-checked elements

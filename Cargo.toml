@@ -29,6 +29,27 @@ required-features = ["raylib"]
 name = "kryon-renderer-debug"
 path = "src/bin/kryon-renderer-debug.rs"
 
+[[bin]]
+name = "kryon-bundle"
+path = "src/bin/kryon-bundle.rs"
+
+[[bin]]
+name = "kryon-standalone"
+path = "src/bin/kryon-standalone.rs"
+
+[[bin]]
+name = "debug_script_system"
+path = "src/debug_script_system.rs"
+
+[[bin]]
+name = "test_counter"
+path = "src/test_counter.rs"
+
+# [[bin]]
+# name = "minimal_reactive_test"
+# path = "src/minimal_reactive_test.rs"
+# required-features = ["kryon-runtime/lua-vm"]
+
 [[example]]
 name = "percentage_test"
 path = "examples/percentage_test.rs"
@@ -94,6 +115,7 @@ default = ["raylib", "kryon-runtime/lua-vm"]
 wgpu = ["dep:kryon-wgpu", "dep:wgpu", "dep:winit", "dep:pollster", "kryon-runtime/wgpu", "kryon-runtime/lua-vm"]
 ratatui = ["dep:kryon-ratatui", "dep:ratatui", "dep:crossterm", "kryon-runtime/ratatui", "kryon-runtime/lua-vm"]
 raylib = ["dep:kryon-raylib", "dep:raylib", "kryon-runtime/raylib", "kryon-runtime/lua-vm"]
+embedded_krb = []  # Feature flag for building standalone executables
 
 [workspace.dependencies]
 # Common dependencies
