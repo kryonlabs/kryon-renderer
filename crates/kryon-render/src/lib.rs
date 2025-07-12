@@ -8,6 +8,11 @@ use kryon_layout::LayoutResult;
 pub mod events;
 pub use events::*;
 
+#[cfg(feature = "wasm")]
+pub mod wasm;
+#[cfg(feature = "wasm")]
+pub use wasm::*;
+
 #[derive(Debug, thiserror::Error)]
 pub enum RenderError {
     #[error("Renderer initialization failed: {0}")]
@@ -121,6 +126,52 @@ pub enum RenderCommand {
         border_width: f32,
         transform: Option<TransformData>,
     },
+    /// Canvas-specific rendering commands
+    BeginCanvas {
+        canvas_id: String,
+        position: Vec2,
+        size: Vec2,
+    },
+    EndCanvas,
+    /// Basic 2D drawing commands for Canvas
+    DrawCanvasLine {
+        start: Vec2,
+        end: Vec2,
+        color: Vec4,
+        width: f32,
+    },
+    DrawCanvasRect {
+        position: Vec2,
+        size: Vec2,
+        fill_color: Option<Vec4>,
+        stroke_color: Option<Vec4>,
+        stroke_width: f32,
+    },
+    DrawCanvasCircle {
+        center: Vec2,
+        radius: f32,
+        fill_color: Option<Vec4>,
+        stroke_color: Option<Vec4>,
+        stroke_width: f32,
+    },
+    DrawCanvasText {
+        position: Vec2,
+        text: String,
+        font_size: f32,
+        color: Vec4,
+    },
+    /// WASM View rendering commands
+    BeginWasmView {
+        wasm_id: String,
+        position: Vec2,
+        size: Vec2,
+    },
+    EndWasmView,
+    /// Execute a WASM function with given parameters
+    ExecuteWasmFunction {
+        function_name: String,
+        params: Vec<f64>, // Simple numeric parameters for now
+    },
 }
 
 /// Trait for backends that use command-based rendering.
@@ -231,6 +282,12 @@ impl<R: CommandRenderer> ElementRenderer<R> {
             return Ok(commands); // Element has no size, so it can't be drawn.
         };
         
+        // Debug output to track layout vs rendering discrepancy
+        if size.x == 800.0 && size.y > 70.0 && size.y < 80.0 {
+            eprintln!("[RENDER_CMD] Element {} (800px wide): pos=({}, {}), size=({}, {})", 
+                element_id, position.x, position.y, size.x, size.y);
+        }
+        
         // Draw the background/border rectangle.
         let mut bg_color = style.background_color;
         bg_color.w *= element.opacity;
@@ -301,6 +358,56 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                     });
                 }
             }
+        }
+        
+        // Handle Link elements - render similar to Text but with link styling
+        if element.element_type == ElementType::Link {
+            // Draw the background/border if specified (already done above)
+            
+            // Draw the link text with special styling
+            if !element.text.is_empty() {
+                let mut link_color = element.custom_properties.get("color")
+                    .and_then(|v| v.as_color())
+                    .unwrap_or(Vec4::new(0.0, 0.0, 1.0, 1.0)); // Default blue
+                
+                // Apply interaction state colors
+                match element.current_state {
+                    kryon_core::InteractionState::Hover => {
+                        // Slightly lighter blue on hover
+                        link_color = Vec4::new(0.2, 0.2, 1.0, 1.0);
+                    }
+                    kryon_core::InteractionState::Active => {
+                        // Darker blue when active/pressed
+                        link_color = Vec4::new(0.0, 0.0, 0.8, 1.0);
+                    }
+                    _ => {
+                        // Use default or custom color
+                    }
+                }
+                
+                link_color.w *= element.opacity;
+                
+                if link_color.w > 0.0 {
+                    commands.push(RenderCommand::DrawText {
+                        position,
+                        text: element.text.clone(),
+                        font_size: element.font_size,
+                        color: link_color,
+                        alignment: element.text_alignment,
+                        max_width: Some(size.x),
+                        max_height: Some(size.y),
+                        transform: transform.clone(),
+                        font_family: if element.font_family.is_empty() || element.font_family == "default" {
+                            None
+                        } else {
+                            Some(element.font_family.clone())
+                        },
+                    });
+                }
+            }
+            
+            // Skip the regular text rendering for Link elements
+            return Ok(commands);
         }
         
         // Handle Input elements with different types
@@ -407,6 +514,131 @@ impl<R: CommandRenderer> ElementRenderer<R> {
             
             // Skip drawing the default background rect and text for Input elements
             // since the input-specific commands handle their own rendering
+            return Ok(commands);
+        }
+        
+        // Handle Canvas elements
+        if element.element_type == ElementType::Canvas {
+            // Begin canvas rendering context
+            commands.push(RenderCommand::BeginCanvas {
+                canvas_id: element.id.clone(),
+                position,
+                size,
+            });
+            
+            // Execute canvas draw script if available
+            if let Some(draw_script) = element.custom_properties.get("draw_script") {
+                if let PropertyValue::String(script_name) = draw_script {
+                    // TODO: Execute the canvas draw script here
+                    // This would call into the script system to execute the named function
+                    eprintln!("[CANVAS] Canvas '{}' should execute draw script: '{}'", element.id, script_name);
+                    
+                    // For now, draw a placeholder to show Canvas is working
+                    commands.push(RenderCommand::DrawCanvasRect {
+                        position: Vec2::new(10.0, 10.0), // Relative to canvas
+                        size: Vec2::new(size.x - 20.0, size.y - 20.0),
+                        fill_color: Some(Vec4::new(0.2, 0.4, 0.8, 0.3)), // Light blue
+                        stroke_color: Some(Vec4::new(0.0, 0.2, 0.6, 1.0)), // Darker blue
+                        stroke_width: 2.0,
+                    });
+                    
+                    commands.push(RenderCommand::DrawCanvasText {
+                        position: Vec2::new(size.x / 2.0 - 30.0, size.y / 2.0), // Center-ish
+                        text: "Canvas".to_string(),
+                        font_size: 16.0,
+                        color: Vec4::new(1.0, 1.0, 1.0, 1.0), // White text
+                    });
+                }
+            } else {
+                // Default canvas appearance when no draw script is specified
+                commands.push(RenderCommand::DrawCanvasRect {
+                    position: Vec2::ZERO,
+                    size,
+                    fill_color: Some(Vec4::new(0.1, 0.1, 0.1, 1.0)), // Dark background
+                    stroke_color: Some(Vec4::new(0.5, 0.5, 0.5, 1.0)), // Gray border
+                    stroke_width: 1.0,
+                });
+            }
+            
+            // End canvas rendering context
+            commands.push(RenderCommand::EndCanvas);
+            
+            // Skip the regular background and text rendering for Canvas elements
+            return Ok(commands);
+        }
+        
+        // Handle WasmView elements
+        if element.element_type == ElementType::WasmView {
+            // Begin WASM view rendering context
+            commands.push(RenderCommand::BeginWasmView {
+                wasm_id: element.id.clone(),
+                position,
+                size,
+            });
+            
+            // Load and execute WASM module if specified
+            if let Some(source) = element.custom_properties.get("source") {
+                if let PropertyValue::String(wasm_path) = source {
+                    eprintln!("[WASM] WasmView '{}' should load WASM module: '{}'", element.id, wasm_path);
+                    
+                    // Execute onLoad function if specified
+                    if let Some(on_load) = element.custom_properties.get("onLoad") {
+                        if let PropertyValue::String(function_name) = on_load {
+                            commands.push(RenderCommand::ExecuteWasmFunction {
+                                function_name: function_name.clone(),
+                                params: vec![], // No parameters for onLoad
+                            });
+                        }
+                    }
+                    
+                    // Execute onDraw function if specified  
+                    if let Some(on_draw) = element.custom_properties.get("onDraw") {
+                        if let PropertyValue::String(function_name) = on_draw {
+                            commands.push(RenderCommand::ExecuteWasmFunction {
+                                function_name: function_name.clone(),
+                                params: vec![], // No parameters for onDraw for now
+                            });
+                        }
+                    }
+                    
+                    // For now, draw a placeholder to show WasmView is working
+                    commands.push(RenderCommand::DrawCanvasRect {
+                        position: Vec2::new(10.0, 10.0), // Relative to wasm view
+                        size: Vec2::new(size.x - 20.0, size.y - 20.0),
+                        fill_color: Some(Vec4::new(0.8, 0.2, 0.4, 0.3)), // Light purple
+                        stroke_color: Some(Vec4::new(0.6, 0.0, 0.2, 1.0)), // Darker purple
+                        stroke_width: 2.0,
+                    });
+                    
+                    commands.push(RenderCommand::DrawCanvasText {
+                        position: Vec2::new(size.x / 2.0 - 40.0, size.y / 2.0), // Center-ish
+                        text: "WASM View".to_string(),
+                        font_size: 16.0,
+                        color: Vec4::new(1.0, 1.0, 1.0, 1.0), // White text
+                    });
+                }
+            } else {
+                // Default appearance when no WASM source is specified
+                commands.push(RenderCommand::DrawCanvasRect {
+                    position: Vec2::ZERO,
+                    size,
+                    fill_color: Some(Vec4::new(0.2, 0.1, 0.3, 1.0)), // Dark purple background
+                    stroke_color: Some(Vec4::new(0.8, 0.4, 0.6, 1.0)), // Pink border
+                    stroke_width: 1.0,
+                });
+                
+                commands.push(RenderCommand::DrawCanvasText {
+                    position: Vec2::new(size.x / 2.0 - 50.0, size.y / 2.0),
+                    text: "No WASM Source".to_string(),
+                    font_size: 14.0,
+                    color: Vec4::new(0.8, 0.8, 0.8, 1.0), // Light gray text
+                });
+            }
+            
+            // End WASM view rendering context
+            commands.push(RenderCommand::EndWasmView);
+            
+            // Skip the regular background and text rendering for WasmView elements
             return Ok(commands);
         }
 
