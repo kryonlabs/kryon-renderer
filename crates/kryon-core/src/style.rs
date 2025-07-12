@@ -63,6 +63,7 @@ pub struct StyleComputer {
     elements: HashMap<ElementId, Element>,
     styles: HashMap<u8, Style>,
     cache: RefCell<HashMap<(ElementId, crate::InteractionState), ComputedStyle>>,
+    #[allow(dead_code)]
     property_registry: crate::PropertyRegistry,
 }
 
@@ -78,6 +79,7 @@ impl StyleComputer {
     
     /// Determines if a property should be inherited from parent to child
     /// Now uses the unified PropertyRegistry instead of hardcoded match
+    #[allow(dead_code)]
     fn is_property_inheritable(&self, property_id: u8) -> bool {
         let property_enum = crate::PropertyId::from(property_id);
         self.property_registry.is_inheritable(property_enum)

@@ -1399,11 +1399,17 @@ impl KRBParser {
                     }
                 }
                 
-                // For justify_content=center, also enable centering
+                // Handle justify_content for main axis alignment
                 if let Some(justify) = justify_content {
                     match justify.as_str() {
                         "center" | "centre" => {
                             should_center = true;
+                        }
+                        "start" | "flex-start" => {
+                            layout_flags = (layout_flags & !0x0C) | 0x00; // LAYOUT_ALIGNMENT_START
+                        }
+                        "end" | "flex-end" => {
+                            layout_flags = (layout_flags & !0x0C) | 0x08; // LAYOUT_ALIGNMENT_END
                         }
                         _ => {}
                     }
@@ -1797,11 +1803,16 @@ impl KRBParser {
                         }
                     }
                     
-                    // Apply text alignment property (0x0B) to Button and Text elements
-                    if element.element_type == ElementType::Button || element.element_type == ElementType::Text {
+                    // Apply text alignment property (0x0B) to Button, Text, and Link elements
+                    if element.element_type == ElementType::Button || element.element_type == ElementType::Text || element.element_type == ElementType::Link {
+                        let element_name = match element.element_type {
+                            ElementType::Button => "Button",
+                            ElementType::Text => "Text", 
+                            ElementType::Link => "Link",
+                            _ => "Unknown"
+                        };
                         eprintln!("[STYLE_LAYOUT] Checking text alignment for {} element with style_id={}, style_name='{}'", 
-                            if element.element_type == ElementType::Button { "Button" } else { "Text" },
-                            element.style_id, style_block.name);
+                            element_name, element.style_id, style_block.name);
                         eprintln!("[STYLE_LAYOUT] Style '{}' has {} properties: {:?}", 
                             style_block.name, style_block.properties.len(), style_block.properties.keys().collect::<Vec<_>>());
                         
@@ -2012,7 +2023,11 @@ impl KRBParser {
 
 pub fn load_krb_file(path: &str) -> Result<KRBFile> {
     let data = std::fs::read(path)?;
-    let mut parser = KRBParser::new(data);
+    load_krb_from_bytes(&data)
+}
+
+pub fn load_krb_from_bytes(data: &[u8]) -> Result<KRBFile> {
+    let mut parser = KRBParser::new(data.to_vec());
     let krb_file = parser.parse()?;
     
     // DEBUG: Print everything we parsed
