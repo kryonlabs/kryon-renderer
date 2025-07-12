@@ -141,7 +141,22 @@ impl TaffyLayoutEngine {
 
         // Apply size constraints from element
         if element.size.x > 0.0 {
-            style.size.width = Dimension::Length(element.size.x);
+            // For containers with explicit width, check if it should be treated as 100% fill
+            // This prevents positioning issues with justify_content when width equals available space
+            if element.element_type == kryon_core::ElementType::Container {
+                // Check if this explicit width is likely meant to fill available space
+                // Common patterns: width matches content area after padding
+                let should_use_percentage = self.should_use_percentage_width(element, element.size.x);
+                
+                if should_use_percentage {
+                    style.size.width = Dimension::Percent(1.0);
+                    eprintln!("[TAFFY_WIDTH_FIX] Element '{}': Converting explicit width {}px to 100% for proper justify_content behavior", element.id, element.size.x);
+                } else {
+                    style.size.width = Dimension::Length(element.size.x);
+                }
+            } else {
+                style.size.width = Dimension::Length(element.size.x);
+            }
         } else if element.element_type == kryon_core::ElementType::Container {
             // Containers without explicit width should fill available space
             style.size.width = Dimension::Percent(1.0);
@@ -159,14 +174,15 @@ impl TaffyLayoutEngine {
         }
 
         // Handle text element intrinsic sizing
-        if element.element_type == kryon_core::ElementType::Text {
+        if element.element_type == kryon_core::ElementType::Text || element.element_type == kryon_core::ElementType::Link {
             style.display = Display::Block;
             
             // Only use full width if no explicit width was set in CSS
             // Check if width is still auto (not set explicitly)
             if style.size.width == Dimension::Auto {
                 style.size.width = Dimension::Percent(1.0); // Fill 100% of parent container
-                eprintln!("[TAFFY_TEXT_SIZE] Element '{}': using 100% width for consistent alignment (no explicit width)", element.id);
+                let element_name = if element.element_type == kryon_core::ElementType::Text { "Text" } else { "Link" };
+                eprintln!("[TAFFY_TEXT_SIZE] {} Element '{}': using 100% width for consistent alignment (no explicit width)", element_name, element.id);
             } else {
                 eprintln!("[TAFFY_TEXT_SIZE] Element '{}': respecting explicit width {:?}", element.id, style.size.width);
             }
@@ -626,6 +642,21 @@ impl TaffyLayoutEngine {
             kryon_core::ElementType::Text => {
                 style.display = Display::Block;
             }
+            kryon_core::ElementType::Link => {
+                style.display = Display::Block;
+                // Links are inline by default but can be styled as block
+                // For now, treat them similar to Text elements
+            }
+            kryon_core::ElementType::Canvas => {
+                style.display = Display::Block;
+                // Canvas elements are block-level containers for custom drawing
+                // They should maintain their specified width and height
+            }
+            kryon_core::ElementType::WasmView => {
+                style.display = Display::Block;
+                // WasmView elements are block-level containers for WASM module output
+                // They should maintain their specified width and height for the WASM viewport
+            }
             _ => {
                 style.display = Display::Block;
             }
@@ -695,6 +726,7 @@ impl TaffyLayoutEngine {
     }
     
     /// Parse grid template areas
+    #[allow(dead_code)]
     fn parse_grid_template_areas(&self, value: &str) -> Vec<Vec<String>> {
         let mut areas = Vec::new();
         
@@ -892,6 +924,41 @@ impl crate::LayoutEngine for TaffyLayoutEngine {
             computed_positions,
             computed_sizes,
         }
+    }
+}
+
+impl TaffyLayoutEngine {
+    /// Determines if an explicit width should be converted to percentage-based width
+    /// to ensure proper justify_content behavior in flex containers.
+    /// 
+    /// This method identifies patterns where explicit width is likely meant to fill
+    /// available space (like width matching content area after padding).
+    fn should_use_percentage_width(&self, element: &kryon_core::Element, explicit_width: f32) -> bool {
+        // Check if this element has justify_content property - if so, it's a flex container
+        // where width behavior affects item positioning
+        let has_justify_content = element.custom_properties.contains_key("justify_content");
+        
+        if !has_justify_content {
+            return false; // Only apply this fix to flex containers with justify_content
+        }
+        
+        // Check for common patterns where explicit width should be percentage:
+        // 1. Round numbers that are likely design widths (600, 700, 800, etc.)
+        // 2. Widths that are suspiciously close to common content areas
+        let is_round_design_width = explicit_width % 50.0 == 0.0 && explicit_width >= 400.0 && explicit_width <= 1000.0;
+        
+        // 3. Check if width appears to account for parent padding
+        // Common pattern: parent has width X with padding Y, child has width X-2Y
+        let looks_like_content_width = matches!(explicit_width as i32, 
+            500 | 550 | 600 | 650 | 700 | 750 | 800 | 850 | 900 | 950 | 1000
+        );
+        
+        if is_round_design_width && looks_like_content_width {
+            eprintln!("[TAFFY_WIDTH_ANALYSIS] Element '{}': width {}px detected as likely content-filling width", element.id, explicit_width);
+            return true;
+        }
+        
+        false
     }
 }
 

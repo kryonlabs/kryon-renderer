@@ -210,6 +210,7 @@ impl RaylibRenderer {
     }
     
     /// Get a loaded font by family name, or None if not loaded/default
+    #[allow(dead_code)]
     fn get_font(&self, font_family: &str) -> Option<&Font> {
         self.fonts.get(font_family)
     }
@@ -330,6 +331,10 @@ impl RaylibRenderer {
             } => {
                 let rect = Rectangle::new(position.x, position.y, size.x, size.y);
                 let raylib_color = vec4_to_raylib_color(*color);
+                
+                // Debug output for positioning investigation
+                eprintln!("[RAYLIB_DRAW] DrawRect pos=({}, {}), size=({}, {}), color=({}, {}, {}, {})", 
+                    position.x, position.y, size.x, size.y, color.x, color.y, color.z, color.w);
                 
                 // Apply transform if present
                 if let Some(transform_data) = transform {
@@ -795,7 +800,79 @@ impl RaylibRenderer {
                     d.draw_rectangle_lines_ex(thumb_rect, *border_width, border_raylib_color);
                 }
             },
-            RenderCommand::SetCanvasSize(_) => {}
+            RenderCommand::SetCanvasSize(_) => {},
+            // Canvas rendering commands
+            RenderCommand::BeginCanvas { canvas_id: _, position: _, size: _ } => {
+                // For Raylib, canvas rendering is just direct drawing
+                // BeginCanvas/EndCanvas are markers for organization
+            },
+            RenderCommand::EndCanvas => {
+                // Nothing special needed for Raylib
+            },
+            RenderCommand::DrawCanvasRect { position, size, fill_color, stroke_color, stroke_width } => {
+                let rect = Rectangle::new(position.x, position.y, size.x, size.y);
+                
+                // Draw fill if specified
+                if let Some(fill) = fill_color {
+                    let fill_raylib_color = vec4_to_raylib_color(*fill);
+                    d.draw_rectangle_rec(rect, fill_raylib_color);
+                }
+                
+                // Draw stroke if specified
+                if let Some(stroke) = stroke_color {
+                    let stroke_raylib_color = vec4_to_raylib_color(*stroke);
+                    d.draw_rectangle_lines_ex(rect, *stroke_width, stroke_raylib_color);
+                }
+            },
+            RenderCommand::DrawCanvasCircle { center, radius, fill_color, stroke_color, stroke_width } => {
+                let center_vec = Vector2::new(center.x, center.y);
+                
+                // Draw fill if specified
+                if let Some(fill) = fill_color {
+                    let fill_raylib_color = vec4_to_raylib_color(*fill);
+                    d.draw_circle_v(center_vec, *radius, fill_raylib_color);
+                }
+                
+                // Draw stroke if specified
+                if let Some(stroke) = stroke_color {
+                    let stroke_raylib_color = vec4_to_raylib_color(*stroke);
+                    d.draw_circle_lines(center.x as i32, center.y as i32, *radius, stroke_raylib_color);
+                    
+                    // Draw additional circles for stroke width if needed
+                    if *stroke_width > 1.0 {
+                        for i in 1..(stroke_width.ceil() as i32) {
+                            d.draw_circle_lines(center.x as i32, center.y as i32, radius + i as f32, stroke_raylib_color);
+                        }
+                    }
+                }
+            },
+            RenderCommand::DrawCanvasLine { start, end, color, width } => {
+                let start_vec = Vector2::new(start.x, start.y);
+                let end_vec = Vector2::new(end.x, end.y);
+                let raylib_color = vec4_to_raylib_color(*color);
+                
+                if *width <= 1.0 {
+                    d.draw_line_v(start_vec, end_vec, raylib_color);
+                } else {
+                    d.draw_line_ex(start_vec, end_vec, *width, raylib_color);
+                }
+            },
+            RenderCommand::DrawCanvasText { position, text, font_size, color } => {
+                let raylib_color = vec4_to_raylib_color(*color);
+                d.draw_text(text, position.x as i32, position.y as i32, *font_size as i32, raylib_color);
+            }
+            // WASM View rendering commands
+            RenderCommand::BeginWasmView { wasm_id: _, position: _, size: _ } => {
+                // For Raylib, WASM view rendering is just direct drawing
+                // BeginWasmView/EndWasmView are markers for organization
+            }
+            RenderCommand::EndWasmView => {
+                // Nothing special needed for Raylib
+            }
+            RenderCommand::ExecuteWasmFunction { function_name: _, params: _ } => {
+                // WASM function execution would be handled by a separate WASM runtime
+                // This command is just a marker for the rendering pipeline
+            }
         }
         Ok(())
     }

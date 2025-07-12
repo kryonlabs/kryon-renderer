@@ -112,6 +112,76 @@ fn render_commands_to_frame(commands: &[RenderCommand], frame: &mut Frame, app_c
                 }
             }
             RenderCommand::SetCanvasSize(_) => {},
+            // Canvas rendering commands
+            RenderCommand::BeginCanvas { canvas_id: _, position, size } => {
+                // For ratatui, we can draw a simple border to represent the canvas
+                let canvas_area = translate_rect(*position, *size, app_canvas_size, terminal_area);
+                if let Some(area) = canvas_area {
+                    let block = ratatui::widgets::Block::default()
+                        .borders(ratatui::widgets::Borders::ALL)
+                        .border_style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray))
+                        .title("Canvas");
+                    frame.render_widget(block, area);
+                }
+            }
+            RenderCommand::EndCanvas => {
+                // Nothing to do for ratatui - just a marker
+            }
+            RenderCommand::DrawCanvasRect { position, size, fill_color, stroke_color: _, stroke_width: _ } => {
+                // For ratatui, draw a filled rectangle using block characters
+                let canvas_area = translate_rect(*position, *size, app_canvas_size, terminal_area);
+                if let Some(area) = canvas_area {
+                    if let Some(fill) = fill_color {
+                        let color = ratatui::style::Color::Rgb(
+                            (fill.x * 255.0) as u8,
+                            (fill.y * 255.0) as u8,
+                            (fill.z * 255.0) as u8,
+                        );
+                        let block = ratatui::widgets::Block::default()
+                            .style(ratatui::style::Style::default().bg(color));
+                        frame.render_widget(block, area);
+                    }
+                }
+            }
+            RenderCommand::DrawCanvasCircle { center: _, radius: _, fill_color: _, stroke_color: _, stroke_width: _ } => {
+                // Terminal circles are difficult - skip for now
+            }
+            RenderCommand::DrawCanvasLine { start: _, end: _, color: _, width: _ } => {
+                // Terminal lines are difficult - skip for now
+            }
+            RenderCommand::DrawCanvasText { position, text, font_size: _, color } => {
+                // Draw text within the canvas area
+                let text_area = translate_rect(*position, Vec2::new(text.len() as f32 * 8.0, 16.0), app_canvas_size, terminal_area);
+                if let Some(area) = text_area {
+                    let color = ratatui::style::Color::Rgb(
+                        (color.x * 255.0) as u8,
+                        (color.y * 255.0) as u8,
+                        (color.z * 255.0) as u8,
+                    );
+                    let paragraph = ratatui::widgets::Paragraph::new(text.as_str())
+                        .style(ratatui::style::Style::default().fg(color));
+                    frame.render_widget(paragraph, area);
+                }
+            }
+            // WASM View rendering commands
+            RenderCommand::BeginWasmView { wasm_id: _, position, size } => {
+                // For ratatui, draw a purple border to represent the WASM view
+                let wasm_area = translate_rect(*position, *size, app_canvas_size, terminal_area);
+                if let Some(area) = wasm_area {
+                    let block = ratatui::widgets::Block::default()
+                        .borders(ratatui::widgets::Borders::ALL)
+                        .border_style(ratatui::style::Style::default().fg(ratatui::style::Color::Magenta))
+                        .title("WASM View");
+                    frame.render_widget(block, area);
+                }
+            }
+            RenderCommand::EndWasmView => {
+                // Nothing to do for ratatui - just a marker
+            }
+            RenderCommand::ExecuteWasmFunction { function_name: _, params: _ } => {
+                // In terminal mode, WASM execution is limited - just log it
+                // The actual WASM execution would happen elsewhere
+            }
             _ => {} 
         }
     }
