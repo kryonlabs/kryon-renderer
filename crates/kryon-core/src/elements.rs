@@ -45,6 +45,14 @@ pub enum InteractionState {
     Checked = 16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverflowType {
+    Visible = 0,
+    Hidden = 1,
+    Scroll = 2,
+    Auto = 3,
+}
+
 #[derive(Debug, Clone)]
 pub struct Element {
     pub id: String,
@@ -62,6 +70,12 @@ pub struct Element {
     pub layout_flags: u8,
     pub gap: f32,        // Gap between flex items
     
+    // Overflow properties
+    pub overflow_x: OverflowType,
+    pub overflow_y: OverflowType,
+    pub max_height: Option<f32>,
+    pub max_width: Option<f32>,
+    
     // Visual properties
     pub background_color: Vec4,
     pub text_color: Vec4,
@@ -70,6 +84,7 @@ pub struct Element {
     pub border_radius: f32,
     pub opacity: f32,
     pub visible: bool,
+    pub z_index: i32,
     
     // Text properties
     pub text: String,
@@ -150,6 +165,10 @@ impl Default for Element {
             layout_size: LayoutSize::auto(),
             layout_flags: 0,
             gap: 0.0,
+            overflow_x: OverflowType::Visible,
+            overflow_y: OverflowType::Visible,
+            max_height: None,
+            max_width: None,
             background_color: Vec4::new(0.0, 0.0, 0.0, 0.0), // Transparent
             text_color: Vec4::new(0.0, 0.0, 0.0, 1.0), // Black
             border_color: Vec4::new(0.0, 0.0, 0.0, 0.0), // Transparent
@@ -157,6 +176,7 @@ impl Default for Element {
             border_radius: 0.0,
             opacity: 1.0,
             visible: true,
+            z_index: 0,
             text: String::new(),
             font_size: 14.0,
             font_weight: FontWeight::Normal,

@@ -29,6 +29,8 @@ pub enum PropertyId {
     ImageSource = 0x0D,
     Opacity = 0x0E,
     ZIndex = 0x0F,
+    ListStyleType = 0x1E,
+    WhiteSpace = 0x1F,
     
     // Display Properties (0x10-0x1F)
     Visibility = 0x10,
@@ -38,11 +40,13 @@ pub enum PropertyId {
     MaxWidth = 0x14,
     MaxHeight = 0x15,
     Transform = 0x16,
+    // Reserved for future use = 0x17,
+    Shadow = 0x18,
     
     // Layout Properties (0x19-0x1F)
     Width = 0x19,
-    OldLayoutFlags = 0x1A, // Legacy layout flags
-    Height = 0x1B,
+    Height = 0x1A,
+    OldLayoutFlags = 0x1B, // Legacy layout flags
     
     // Window Properties (0x20-0x2F)
     WindowWidth = 0x20,
@@ -135,6 +139,11 @@ pub enum PropertyId {
     OutlineWidth = 0x89,
     OutlineOffset = 0x8A,
     
+    // Overflow properties
+    Overflow = 0x8B,
+    OverflowX = 0x8C,
+    OverflowY = 0x8D,
+    
     // Reserved for custom properties (0x90-0xFF)
     Custom(u8),
 }
@@ -156,6 +165,8 @@ impl From<u8> for PropertyId {
             0x0D => PropertyId::ImageSource,
             0x0E => PropertyId::Opacity,
             0x0F => PropertyId::ZIndex,
+            0x1E => PropertyId::ListStyleType,
+            0x1F => PropertyId::WhiteSpace,
             0x10 => PropertyId::Visibility,
             0x11 => PropertyId::Gap,
             0x12 => PropertyId::MinWidth,
@@ -163,9 +174,10 @@ impl From<u8> for PropertyId {
             0x14 => PropertyId::MaxWidth,
             0x15 => PropertyId::MaxHeight,
             0x16 => PropertyId::Transform,
+            0x18 => PropertyId::Shadow,
             0x19 => PropertyId::Width,
-            0x1A => PropertyId::OldLayoutFlags,
-            0x1B => PropertyId::Height,
+            0x1A => PropertyId::Height,
+            0x1B => PropertyId::OldLayoutFlags,
             0x20 => PropertyId::WindowWidth,
             0x21 => PropertyId::WindowHeight,
             0x22 => PropertyId::WindowTitle,
@@ -236,6 +248,9 @@ impl From<u8> for PropertyId {
             0x88 => PropertyId::OutlineColor,
             0x89 => PropertyId::OutlineWidth,
             0x8A => PropertyId::OutlineOffset,
+            0x8B => PropertyId::Overflow,
+            0x8C => PropertyId::OverflowX,
+            0x8D => PropertyId::OverflowY,
             other => PropertyId::Custom(other),
         }
     }
@@ -259,6 +274,8 @@ impl PropertyId {
             PropertyId::ImageSource => 0x0D,
             PropertyId::Opacity => 0x0E,
             PropertyId::ZIndex => 0x0F,
+            PropertyId::ListStyleType => 0x1E,
+            PropertyId::WhiteSpace => 0x1F,
             PropertyId::Visibility => 0x10,
             PropertyId::Gap => 0x11,
             PropertyId::MinWidth => 0x12,
@@ -266,9 +283,10 @@ impl PropertyId {
             PropertyId::MaxWidth => 0x14,
             PropertyId::MaxHeight => 0x15,
             PropertyId::Transform => 0x16,
+            PropertyId::Shadow => 0x18,
             PropertyId::Width => 0x19,
-            PropertyId::OldLayoutFlags => 0x1A,
-            PropertyId::Height => 0x1B,
+            PropertyId::Height => 0x1A,
+            PropertyId::OldLayoutFlags => 0x1B,
             PropertyId::WindowWidth => 0x20,
             PropertyId::WindowHeight => 0x21,
             PropertyId::WindowTitle => 0x22,
@@ -339,6 +357,9 @@ impl PropertyId {
             PropertyId::OutlineColor => 0x88,
             PropertyId::OutlineWidth => 0x89,
             PropertyId::OutlineOffset => 0x8A,
+            PropertyId::Overflow => 0x8B,
+            PropertyId::OverflowX => 0x8C,
+            PropertyId::OverflowY => 0x8D,
             PropertyId::Custom(value) => value,
         }
     }
@@ -452,6 +473,22 @@ impl PropertyRegistry {
         });
         
         self.register_property(PropertyMetadata {
+            id: PropertyId::ListStyleType,
+            name: "list-style-type",
+            inheritable: true,
+            default_value: PropertyValue::Int(0), // 0 = none, 1 = bullet, 2 = number
+            value_type: PropertyValueType::Int,
+        });
+        
+        self.register_property(PropertyMetadata {
+            id: PropertyId::WhiteSpace,
+            name: "white-space",
+            inheritable: true,
+            default_value: PropertyValue::Int(0), // 0 = normal, 1 = nowrap, 2 = pre
+            value_type: PropertyValueType::Int,
+        });
+        
+        self.register_property(PropertyMetadata {
             id: PropertyId::FontFamily,
             name: "font-family",
             inheritable: true,
@@ -469,11 +506,45 @@ impl PropertyRegistry {
         });
         
         self.register_property(PropertyMetadata {
+            id: PropertyId::ZIndex,
+            name: "z-index",
+            inheritable: false,
+            default_value: PropertyValue::Int(0),
+            value_type: PropertyValueType::Int,
+        });
+        
+        // Alias for z-index
+        self.register_property(PropertyMetadata {
+            id: PropertyId::ZIndex,
+            name: "z_index",
+            inheritable: false,
+            default_value: PropertyValue::Int(0),
+            value_type: PropertyValueType::Int,
+        });
+        
+        self.register_property(PropertyMetadata {
             id: PropertyId::Visibility,
             name: "visibility",
             inheritable: true,
             default_value: PropertyValue::Bool(true),
             value_type: PropertyValueType::Bool,
+        });
+        
+        self.register_property(PropertyMetadata {
+            id: PropertyId::Shadow,
+            name: "box-shadow",
+            inheritable: false,
+            default_value: PropertyValue::String("none".to_string()),
+            value_type: PropertyValueType::String,
+        });
+        
+        // Alias for box-shadow
+        self.register_property(PropertyMetadata {
+            id: PropertyId::Shadow,
+            name: "shadow",
+            inheritable: false,
+            default_value: PropertyValue::String("none".to_string()),
+            value_type: PropertyValueType::String,
         });
         
         self.register_property(PropertyMetadata {
@@ -853,6 +924,31 @@ impl PropertyRegistry {
             inheritable: false,
             default_value: PropertyValue::Float(0.0),
             value_type: PropertyValueType::Float,
+        });
+        
+        // Overflow properties
+        self.register_property(PropertyMetadata {
+            id: PropertyId::Overflow,
+            name: "overflow",
+            inheritable: false,
+            default_value: PropertyValue::String("visible".to_string()),
+            value_type: PropertyValueType::String,
+        });
+        
+        self.register_property(PropertyMetadata {
+            id: PropertyId::OverflowX,
+            name: "overflow-x",
+            inheritable: false,
+            default_value: PropertyValue::String("visible".to_string()),
+            value_type: PropertyValueType::String,
+        });
+        
+        self.register_property(PropertyMetadata {
+            id: PropertyId::OverflowY,
+            name: "overflow-y",
+            inheritable: false,
+            default_value: PropertyValue::String("visible".to_string()),
+            value_type: PropertyValueType::String,
         });
         
         // Add more properties as needed...

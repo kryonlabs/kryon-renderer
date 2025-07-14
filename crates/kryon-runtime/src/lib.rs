@@ -254,6 +254,8 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
         // Apply computed layout results back to element positions and sizes
         for (&element_id, computed_position) in &self.layout_result.computed_positions {
             if let Some(element) = self.elements.get_mut(&element_id) {
+                eprintln!("[LAYOUT_APPLY] Element {}: applying computed position {:?} (was {:?})", 
+                    element_id, computed_position, element.position);
                 element.position = *computed_position;
             }
         }

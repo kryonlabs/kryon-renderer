@@ -447,6 +447,8 @@ impl WgpuRenderer {
                 border_width,
                 border_color,
                 transform,
+                shadow: _,
+                z_index: _,
             } = command {
                 // Generate vertices for rounded rectangle
                 let rect_vertices = generate_rounded_rect_vertices(

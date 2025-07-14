@@ -1,5 +1,5 @@
 // crates/kryon-core/src/krb.rs
-use crate::{Element, ElementId, ElementType, PropertyValue, Result, KryonError, TextAlignment, Style, CursorType, InteractionState, EventType, TransformData, TransformType, TransformProperty, TransformPropertyType, CSSUnitValue, CSSUnit, LayoutSize, LayoutPosition, LayoutDimension}; 
+use crate::{Element, ElementId, ElementType, PropertyValue, Result, KryonError, TextAlignment, Style, CursorType, InteractionState, EventType, TransformData, TransformType, TransformProperty, TransformPropertyType, CSSUnitValue, CSSUnit, LayoutSize, LayoutPosition, LayoutDimension, OverflowType}; 
 use std::collections::HashMap;
 use glam::{Vec2, Vec4};
 
@@ -453,6 +453,24 @@ impl KRBParser {
                             continue;
                         }
                     }
+                    0x51 => { // Left
+                        if size == 2 {
+                            let left = self.read_u16() as f32;
+                            PropertyValue::Float(left)
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
+                    0x52 => { // Top
+                        if size == 2 {
+                            let top = self.read_u16() as f32;
+                            PropertyValue::Float(top)
+                        } else {
+                            for _ in 0..size { self.read_u8(); }
+                            continue;
+                        }
+                    }
                     // Add other property types here
                     _ => {
                         // For unknown properties, read the raw bytes and display them
@@ -838,11 +856,26 @@ impl KRBParser {
             }
             0x0F => { // ZIndex
                 if size == 2 {
-                    let z_index = self.read_u16() as i32;
-                    element.custom_properties.insert("z_index".to_string(), PropertyValue::Int(z_index));
-                    eprintln!("[PROP] ZIndex: {}", z_index);
+                    element.z_index = self.read_u16() as i32;
+                    eprintln!("[PROP] ZIndex: {}", element.z_index);
                 } else {
                     eprintln!("[PROP] ZIndex: size mismatch, expected 2, got {}, skipping", size);
+                    for _ in 0..size { self.read_u8(); }
+                }
+            }
+            0x19 => { // Width
+                if size == 2 {
+                    let width = self.read_u16() as f32;
+                    element.layout_size.width = LayoutDimension::Pixels(width);
+                    eprintln!("[PROP] Width: {}", width);
+                } else if size == 4 {
+                    // Percentage value stored as float - read as u32 bytes then convert to f32
+                    let bytes = [self.read_u8(), self.read_u8(), self.read_u8(), self.read_u8()];
+                    let width_percent = f32::from_le_bytes(bytes);
+                    element.layout_size.width = LayoutDimension::Percentage(width_percent / 100.0);
+                    eprintln!("[PROP] Width: {}%", width_percent);
+                } else {
+                    eprintln!("[PROP] Width: size mismatch, expected 2 or 4, got {}, skipping", size);
                     for _ in 0..size { self.read_u8(); }
                 }
             }
@@ -1051,13 +1084,19 @@ impl KRBParser {
                     for _ in 0..size { self.read_u8(); }
                 }
             }
-            0x1A => { // Width
+            0x1A => { // Height
                 if size == 2 {
-                    let width = self.read_u16() as f32;
-                    element.size.x = width;
-                    eprintln!("[PROP] Width: {}", width);
+                    let height = self.read_u16() as f32;
+                    element.layout_size.height = LayoutDimension::Pixels(height);
+                    eprintln!("[PROP] Height: {}", height);
+                } else if size == 4 {
+                    // Percentage value stored as float - read as u32 bytes then convert to f32
+                    let bytes = [self.read_u8(), self.read_u8(), self.read_u8(), self.read_u8()];
+                    let height_percent = f32::from_le_bytes(bytes);
+                    element.layout_size.height = LayoutDimension::Percentage(height_percent / 100.0);
+                    eprintln!("[PROP] Height: {}%", height_percent);
                 } else {
-                    eprintln!("[PROP] Width: size mismatch, expected 2, got {}, skipping", size);
+                    eprintln!("[PROP] Height: size mismatch, expected 2 or 4, got {}, skipping", size);
                     for _ in 0..size { self.read_u8(); }
                 }
             }
@@ -1078,6 +1117,63 @@ impl KRBParser {
                     eprintln!("[PROP] Height: {}", height);
                 } else {
                     eprintln!("[PROP] Height: size mismatch, expected 2, got {}, skipping", size);
+                    for _ in 0..size { self.read_u8(); }
+                }
+            }
+            0x8B => { // Overflow
+                if size == 2 {
+                    let overflow_value = self.read_u16();
+                    let overflow_x = match (overflow_value & 0xF) {
+                        0 => OverflowType::Visible,
+                        1 => OverflowType::Hidden,
+                        2 => OverflowType::Scroll,
+                        3 => OverflowType::Auto,
+                        _ => OverflowType::Visible,
+                    };
+                    let overflow_y = match ((overflow_value >> 4) & 0xF) {
+                        0 => OverflowType::Visible,
+                        1 => OverflowType::Hidden,
+                        2 => OverflowType::Scroll,
+                        3 => OverflowType::Auto,
+                        _ => OverflowType::Visible,
+                    };
+                    element.overflow_x = overflow_x;
+                    element.overflow_y = overflow_y;
+                    eprintln!("[PROP] Overflow: x={:?}, y={:?}", overflow_x, overflow_y);
+                } else {
+                    eprintln!("[PROP] Overflow: size mismatch, expected 2, got {}, skipping", size);
+                    for _ in 0..size { self.read_u8(); }
+                }
+            }
+            0x8C => { // OverflowX  
+                if size == 1 {
+                    let overflow_x = match self.read_u8() {
+                        0 => OverflowType::Visible,
+                        1 => OverflowType::Hidden,
+                        2 => OverflowType::Scroll,
+                        3 => OverflowType::Auto,
+                        _ => OverflowType::Visible,
+                    };
+                    element.overflow_x = overflow_x;
+                    eprintln!("[PROP] OverflowX: {:?}", overflow_x);
+                } else {
+                    eprintln!("[PROP] OverflowX: size mismatch, expected 1, got {}, skipping", size);
+                    for _ in 0..size { self.read_u8(); }
+                }
+            }
+            0x8D => { // OverflowY
+                if size == 1 {
+                    let overflow_y = match self.read_u8() {
+                        0 => OverflowType::Visible,
+                        1 => OverflowType::Hidden,
+                        2 => OverflowType::Scroll,
+                        3 => OverflowType::Auto,
+                        _ => OverflowType::Visible,
+                    };
+                    element.overflow_y = overflow_y;
+                    eprintln!("[PROP] OverflowY: {:?}", overflow_y);
+                } else {
+                    eprintln!("[PROP] OverflowY: size mismatch, expected 1, got {}, skipping", size);
                     for _ in 0..size { self.read_u8(); }
                 }
             }
@@ -1280,6 +1376,28 @@ impl KRBParser {
                     }
                 } else {
                     eprintln!("[PROP] Position: size mismatch, expected 1, got {}, skipping", size);
+                    for _ in 0..size { self.read_u8(); }
+                }
+            }
+            0x51 => { // Left
+                if size == 2 {
+                    let left = self.read_u16() as f32;
+                    element.position.x = left;
+                    element.custom_properties.insert("left".to_string(), PropertyValue::Float(left));
+                    eprintln!("[PROP] Left: {}", left);
+                } else {
+                    eprintln!("[PROP] Left: size mismatch, expected 2, got {}, skipping", size);
+                    for _ in 0..size { self.read_u8(); }
+                }
+            }
+            0x52 => { // Top
+                if size == 2 {
+                    let top = self.read_u16() as f32;
+                    element.position.y = top;
+                    element.custom_properties.insert("top".to_string(), PropertyValue::Float(top));
+                    eprintln!("[PROP] Top: {}", top);
+                } else {
+                    eprintln!("[PROP] Top: size mismatch, expected 2, got {}, skipping", size);
                     for _ in 0..size { self.read_u8(); }
                 }
             }
@@ -1719,6 +1837,10 @@ impl KRBParser {
             layout_size: LayoutSize::pixels(800.0, 600.0),
             layout_flags: 0,
             gap: 0.0,
+            overflow_x: OverflowType::Visible,
+            overflow_y: OverflowType::Visible,
+            max_width: None,
+            max_height: None,
             background_color: Vec4::new(0.1, 0.1, 0.1, 1.0), // Dark gray background
             text_color: Vec4::new(1.0, 1.0, 1.0, 1.0), // White text
             border_color: Vec4::new(0.0, 0.0, 0.0, 0.0), // Transparent border
@@ -1726,6 +1848,7 @@ impl KRBParser {
             border_radius: 0.0,
             opacity: 1.0,
             visible: true,
+            z_index: 0,
             text: "Auto-generated App".to_string(),
             font_size: 14.0,
             font_weight: crate::elements::FontWeight::Normal,
@@ -1785,8 +1908,8 @@ impl KRBParser {
                         }
                     }
                     
-                    // Apply width property (0x1A)
-                    if let Some(width_prop) = style_block.properties.get(&0x1A) {
+                    // Apply width property (0x19)
+                    if let Some(width_prop) = style_block.properties.get(&0x19) {
                         if let Some(width) = width_prop.as_float() {
                             eprintln!("[STYLE_LAYOUT] Applying width {} from style '{}' to element", 
                                 width, style_block.name);
@@ -1794,12 +1917,32 @@ impl KRBParser {
                         }
                     }
                     
-                    // Apply height property (0x1C)
-                    if let Some(height_prop) = style_block.properties.get(&0x1C) {
+                    // Apply height property (0x1A)
+                    if let Some(height_prop) = style_block.properties.get(&0x1A) {
                         if let Some(height) = height_prop.as_float() {
                             eprintln!("[STYLE_LAYOUT] Applying height {} from style '{}' to element", 
                                 height, style_block.name);
                             element.size.y = height;
+                        }
+                    }
+                    
+                    // Apply left position property (0x51)
+                    if let Some(left_prop) = style_block.properties.get(&0x51) {
+                        if let Some(left) = left_prop.as_float() {
+                            eprintln!("[STYLE_LAYOUT] Applying left position {} from style '{}' to element", 
+                                left, style_block.name);
+                            element.position.x = left;
+                            element.custom_properties.insert("left".to_string(), PropertyValue::Float(left));
+                        }
+                    }
+                    
+                    // Apply top position property (0x52)
+                    if let Some(top_prop) = style_block.properties.get(&0x52) {
+                        if let Some(top) = top_prop.as_float() {
+                            eprintln!("[STYLE_LAYOUT] Applying top position {} from style '{}' to element", 
+                                top, style_block.name);
+                            element.position.y = top;
+                            element.custom_properties.insert("top".to_string(), PropertyValue::Float(top));
                         }
                     }
                     
@@ -1880,6 +2023,8 @@ impl KRBParser {
                         (0x4A, "justify_items"),
                         (0x4B, "justify_self"),
                         (0x50, "position"),
+                        (0x51, "left"),
+                        (0x52, "top"),
                     ];
                     
                     for (prop_id, prop_name) in taffy_properties {

@@ -5,6 +5,12 @@ use std::collections::HashMap;
 use kryon_core::{Element, ElementId, ElementType, PropertyValue, StyleComputer, TextAlignment, TransformData};
 use kryon_layout::LayoutResult;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ScrollbarOrientation {
+    Vertical,
+    Horizontal,
+}
+
 pub mod events;
 pub use events::*;
 
@@ -59,6 +65,8 @@ pub enum RenderCommand {
         border_width: f32,
         border_color: Vec4,
         transform: Option<TransformData>,
+        shadow: Option<String>,
+        z_index: i32,
     },
     DrawText {
         position: Vec2,
@@ -70,6 +78,7 @@ pub enum RenderCommand {
         max_height: Option<f32>,
         transform: Option<TransformData>,
         font_family: Option<String>,
+        z_index: i32,
     },
     DrawImage {
         position: Vec2,
@@ -126,6 +135,19 @@ pub enum RenderCommand {
         border_width: f32,
         transform: Option<TransformData>,
     },
+    DrawScrollbar {
+        position: Vec2,
+        size: Vec2,
+        orientation: ScrollbarOrientation,
+        scroll_position: f32,
+        content_size: f32,
+        viewport_size: f32,
+        track_color: Vec4,
+        thumb_color: Vec4,
+        border_color: Vec4,
+        border_width: f32,
+        z_index: i32,
+    },
     /// Canvas-specific rendering commands
     BeginCanvas {
         canvas_id: String,
@@ -159,6 +181,38 @@ pub enum RenderCommand {
         text: String,
         font_size: f32,
         color: Vec4,
+        font_family: Option<String>,
+        alignment: TextAlignment,
+    },
+    /// Draw an ellipse on canvas
+    DrawCanvasEllipse {
+        center: Vec2,
+        rx: f32,
+        ry: f32,
+        fill_color: Option<Vec4>,
+        stroke_color: Option<Vec4>,
+        stroke_width: f32,
+    },
+    /// Draw a polygon from a list of vertices
+    DrawCanvasPolygon {
+        points: Vec<Vec2>,
+        fill_color: Option<Vec4>,
+        stroke_color: Option<Vec4>,
+        stroke_width: f32,
+    },
+    /// Draw a complex shape using SVG-like path data
+    DrawCanvasPath {
+        path_data: String,
+        fill_color: Option<Vec4>,
+        stroke_color: Option<Vec4>,
+        stroke_width: f32,
+    },
+    /// Draw an image on canvas
+    DrawCanvasImage {
+        source: String,
+        position: Vec2,
+        size: Vec2,
+        opacity: f32,
     },
     /// WASM View rendering commands
     BeginWasmView {
@@ -228,6 +282,20 @@ impl<R: CommandRenderer> ElementRenderer<R> {
             // Recursively fill the command list from the element tree.
             self.collect_render_commands(&mut all_commands, elements, layout, root_id, root_element)?;
 
+            // Sort all commands by z_index to ensure proper layering
+            all_commands.sort_by_key(|cmd| {
+                match cmd {
+                    RenderCommand::DrawRect { z_index, .. } => *z_index,
+                    RenderCommand::DrawText { z_index, .. } => *z_index,
+                    RenderCommand::DrawScrollbar { z_index, .. } => *z_index,
+                    RenderCommand::DrawImage { .. } => 0,
+                    RenderCommand::DrawTextInput { .. } => 1,
+                    RenderCommand::DrawCheckbox { .. } => 1,
+                    RenderCommand::DrawSlider { .. } => 1,
+                    _ => 0,
+                }
+            });
+
             self.backend.execute_commands(&mut context, &all_commands)?;
         }
 
@@ -248,9 +316,68 @@ impl<R: CommandRenderer> ElementRenderer<R> {
             return Ok(());
         }
 
+        // Check if this element needs clipping for overflow
+        let needs_clip = element.overflow_x != kryon_core::OverflowType::Visible || 
+                        element.overflow_y != kryon_core::OverflowType::Visible;
+        
+        // Get element position and size for clipping
+        let position = layout.computed_positions.get(&element_id).copied();
+        let size = layout.computed_sizes.get(&element_id).copied();
+        
+        // Apply clipping if needed
+        if needs_clip && position.is_some() && size.is_some() {
+            all_commands.push(RenderCommand::SetClip {
+                position: position.unwrap(),
+                size: size.unwrap(),
+            });
+        }
+        
         // Generate commands for the current element and append them.
         let mut element_commands = self.element_to_commands(element, layout, element_id)?;
         all_commands.append(&mut element_commands);
+
+        // Check if we need to add scrollbar for overflow
+        if (element.overflow_x == kryon_core::OverflowType::Scroll || 
+            element.overflow_y == kryon_core::OverflowType::Scroll) && 
+            position.is_some() && size.is_some() {
+            
+            let pos = position.unwrap();
+            let sz = size.unwrap();
+            
+            // Get z-index for scrollbar (should be above content)
+            let z_index = element.z_index + 1000; // Scrollbar should be above content
+            
+            // Add vertical scrollbar if needed
+            if element.overflow_y == kryon_core::OverflowType::Scroll {
+                // Calculate content height (sum of children heights)
+                let mut content_height: f32 = 0.0;
+                for &child_id in &element.children {
+                    if let Some(child_size) = layout.computed_sizes.get(&child_id) {
+                        if let Some(child_pos) = layout.computed_positions.get(&child_id) {
+                            let child_bottom = child_pos.y + child_size.y - pos.y;
+                            content_height = content_height.max(child_bottom);
+                        }
+                    }
+                }
+                
+                // Only show scrollbar if content exceeds container
+                if content_height > sz.y {
+                    all_commands.push(RenderCommand::DrawScrollbar {
+                        position: Vec2::new(pos.x + sz.x - 15.0, pos.y), // Right side
+                        size: Vec2::new(15.0, sz.y), // Standard scrollbar width
+                        orientation: ScrollbarOrientation::Vertical,
+                        scroll_position: 0.0, // TODO: Track actual scroll position
+                        content_size: content_height,
+                        viewport_size: sz.y,
+                        track_color: Vec4::new(0.9, 0.9, 0.9, 1.0),
+                        thumb_color: Vec4::new(0.6, 0.6, 0.6, 1.0),
+                        border_color: Vec4::new(0.8, 0.8, 0.8, 1.0),
+                        border_width: 1.0,
+                        z_index,
+                    });
+                }
+            }
+        }
 
         // Recurse for children.
         for &child_id in &element.children {
@@ -258,6 +385,12 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                 self.collect_render_commands(all_commands, elements, layout, child_id, child_element)?;
             }
         }
+        
+        // Clear clipping after rendering children
+        if needs_clip {
+            all_commands.push(RenderCommand::ClearClip);
+        }
+        
         Ok(())
     }
 
@@ -306,6 +439,14 @@ impl<R: CommandRenderer> ElementRenderer<R> {
             });
         
         if bg_color.w > 0.0 || border_width > 0.0 {
+            // Extract shadow information from element properties
+            let shadow = element.custom_properties.get("shadow")
+                .and_then(|v| v.as_string())
+                .map(|s| s.to_string());
+                
+            // Extract z_index from element properties
+            let z_index = element.z_index;
+            
             commands.push(RenderCommand::DrawRect {
                 position,
                 size,
@@ -314,6 +455,8 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                 border_width,
                 border_color,
                 transform: transform.clone(),
+                shadow,
+                z_index,
             });
         }
 
@@ -323,6 +466,9 @@ impl<R: CommandRenderer> ElementRenderer<R> {
             text_color.w *= element.opacity;
 
             if text_color.w > 0.0 {
+                // Extract z_index from element properties
+                let text_z_index = element.z_index;
+                
                 // The position for the text block is the same as the element's bounding box.
                 // The renderer backend (e.g., Ratatui) will handle alignment within that box.
                 eprintln!("[RENDER_TEXT] Element {}: text='{}', alignment={:?}, size={:?}", 
@@ -341,6 +487,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                     } else {
                         Some(element.font_family.clone())
                     },
+                    z_index: text_z_index,
                 });
             }
         }
@@ -388,6 +535,9 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                 link_color.w *= element.opacity;
                 
                 if link_color.w > 0.0 {
+                    // Extract z_index from element properties
+                    let link_z_index = element.z_index;
+                    
                     commands.push(RenderCommand::DrawText {
                         position,
                         text: element.text.clone(),
@@ -402,6 +552,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                         } else {
                             Some(element.font_family.clone())
                         },
+                        z_index: link_z_index,
                     });
                 }
             }
@@ -547,6 +698,8 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                         text: "Canvas".to_string(),
                         font_size: 16.0,
                         color: Vec4::new(1.0, 1.0, 1.0, 1.0), // White text
+                        font_family: None,
+                        alignment: TextAlignment::Center,
                     });
                 }
             } else {
@@ -615,6 +768,8 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                         text: "WASM View".to_string(),
                         font_size: 16.0,
                         color: Vec4::new(1.0, 1.0, 1.0, 1.0), // White text
+                        font_family: None,
+                        alignment: TextAlignment::Center,
                     });
                 }
             } else {
@@ -632,6 +787,8 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                     text: "No WASM Source".to_string(),
                     font_size: 14.0,
                     color: Vec4::new(0.8, 0.8, 0.8, 1.0), // Light gray text
+                    font_family: None,
+                    alignment: TextAlignment::Center,
                 });
             }
             

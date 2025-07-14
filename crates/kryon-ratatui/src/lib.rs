@@ -149,7 +149,7 @@ fn render_commands_to_frame(commands: &[RenderCommand], frame: &mut Frame, app_c
             RenderCommand::DrawCanvasLine { start: _, end: _, color: _, width: _ } => {
                 // Terminal lines are difficult - skip for now
             }
-            RenderCommand::DrawCanvasText { position, text, font_size: _, color } => {
+            RenderCommand::DrawCanvasText { position, text, font_size: _, color, font_family: _, alignment: _ } => {
                 // Draw text within the canvas area
                 let text_area = translate_rect(*position, Vec2::new(text.len() as f32 * 8.0, 16.0), app_canvas_size, terminal_area);
                 if let Some(area) = text_area {

@@ -67,6 +67,8 @@ impl Renderer for RaylibRenderer {
         // Execute all pending commands in one drawing session
         let commands = std::mem::take(&mut self.pending_commands); // Move commands out
         
+        // Commands are already sorted by z_index in the render pipeline
+        
         {
             let mut d = self.handle.begin_drawing(&self.thread);
             
@@ -328,9 +330,32 @@ impl RaylibRenderer {
                 border_width,
                 border_color,
                 transform,
+                shadow,
+                z_index: _,
             } => {
                 let rect = Rectangle::new(position.x, position.y, size.x, size.y);
                 let raylib_color = vec4_to_raylib_color(*color);
+                
+                // Draw shadow if specified
+                if let Some(shadow_str) = shadow {
+                    if !shadow_str.is_empty() && shadow_str != "none" {
+                        // Parse shadow string: "offset-x offset-y blur-radius spread-radius color"
+                        // Example: "0 4px 6px rgba(0, 0, 0, 0.1)"
+                        if let Some(shadow_values) = parse_box_shadow(shadow_str) {
+                            let shadow_rect = Rectangle::new(
+                                rect.x + shadow_values.offset_x,
+                                rect.y + shadow_values.offset_y,
+                                rect.width + shadow_values.spread_radius * 2.0,
+                                rect.height + shadow_values.spread_radius * 2.0,
+                            );
+                            
+                            // For now, draw a simple shadow without blur (Raylib limitation)
+                            // In a real implementation, you'd render multiple offset rectangles with decreasing opacity for blur
+                            let shadow_color = vec4_to_raylib_color(shadow_values.color);
+                            d.draw_rectangle_rec(shadow_rect, shadow_color);
+                        }
+                    }
+                }
                 
                 // Debug output for positioning investigation
                 eprintln!("[RAYLIB_DRAW] DrawRect pos=({}, {}), size=({}, {}), color=({}, {}, {}, {})", 
@@ -402,6 +427,7 @@ impl RaylibRenderer {
                 max_height,
                 transform,
                 font_family,
+                z_index: _,
             } => {
                 let raylib_color = vec4_to_raylib_color(*color);
                 
@@ -800,6 +826,59 @@ impl RaylibRenderer {
                     d.draw_rectangle_lines_ex(thumb_rect, *border_width, border_raylib_color);
                 }
             },
+            RenderCommand::DrawScrollbar {
+                position,
+                size,
+                orientation,
+                scroll_position,
+                content_size,
+                viewport_size,
+                track_color,
+                thumb_color,
+                border_color,
+                border_width,
+                z_index: _,
+            } => {
+                use kryon_render::ScrollbarOrientation;
+                
+                // Draw track background
+                let track_rect = Rectangle::new(position.x, position.y, size.x, size.y);
+                let track_raylib_color = vec4_to_raylib_color(*track_color);
+                d.draw_rectangle_rec(track_rect, track_raylib_color);
+                
+                // Draw track border
+                if *border_width > 0.0 {
+                    let border_raylib_color = vec4_to_raylib_color(*border_color);
+                    d.draw_rectangle_lines_ex(track_rect, *border_width, border_raylib_color);
+                }
+                
+                // Calculate thumb size and position
+                let thumb_ratio = viewport_size / content_size;
+                let scroll_ratio = scroll_position / (content_size - viewport_size).max(1.0);
+                
+                let (thumb_rect, thumb_size) = match orientation {
+                    ScrollbarOrientation::Vertical => {
+                        let thumb_height = (size.y * thumb_ratio).max(20.0); // Minimum thumb height
+                        let thumb_y = position.y + (size.y - thumb_height) * scroll_ratio;
+                        (Rectangle::new(position.x, thumb_y, size.x, thumb_height), thumb_height)
+                    }
+                    ScrollbarOrientation::Horizontal => {
+                        let thumb_width = (size.x * thumb_ratio).max(20.0); // Minimum thumb width
+                        let thumb_x = position.x + (size.x - thumb_width) * scroll_ratio;
+                        (Rectangle::new(thumb_x, position.y, thumb_width, size.y), thumb_width)
+                    }
+                };
+                
+                // Draw thumb
+                let thumb_raylib_color = vec4_to_raylib_color(*thumb_color);
+                d.draw_rectangle_rec(thumb_rect, thumb_raylib_color);
+                
+                // Draw thumb border
+                if *border_width > 0.0 {
+                    let border_raylib_color = vec4_to_raylib_color(*border_color);
+                    d.draw_rectangle_lines_ex(thumb_rect, *border_width, border_raylib_color);
+                }
+            },
             RenderCommand::SetCanvasSize(_) => {},
             // Canvas rendering commands
             RenderCommand::BeginCanvas { canvas_id: _, position: _, size: _ } => {
@@ -857,9 +936,154 @@ impl RaylibRenderer {
                     d.draw_line_ex(start_vec, end_vec, *width, raylib_color);
                 }
             },
-            RenderCommand::DrawCanvasText { position, text, font_size, color } => {
+            RenderCommand::DrawCanvasText { position, text, font_size, color, font_family, alignment } => {
                 let raylib_color = vec4_to_raylib_color(*color);
-                d.draw_text(text, position.x as i32, position.y as i32, *font_size as i32, raylib_color);
+                
+                // Determine which font to use
+                let (text_width, custom_font) = if let Some(font_name) = font_family {
+                    if let Some(font) = fonts.get(font_name) {
+                        let base_size = font.base_size() as f32;
+                        let scale = *font_size / base_size;
+                        let width = d.measure_text(text, font.base_size() as i32) as f32 * scale;
+                        (width, Some(font))
+                    } else {
+                        (d.measure_text(text, *font_size as i32) as f32, None)
+                    }
+                } else {
+                    (d.measure_text(text, *font_size as i32) as f32, None)
+                };
+                
+                // Calculate position based on alignment
+                let text_x = match alignment {
+                    kryon_core::TextAlignment::Start => position.x,
+                    kryon_core::TextAlignment::Center => position.x - text_width / 2.0,
+                    kryon_core::TextAlignment::End => position.x - text_width,
+                    kryon_core::TextAlignment::Justify => position.x, // Treat as start for now
+                };
+                
+                // Draw text with appropriate font
+                if let Some(font) = custom_font {
+                    d.draw_text_pro(
+                        font,
+                        text,
+                        Vector2::new(text_x, position.y),
+                        Vector2::zero(),
+                        0.0, // rotation
+                        *font_size,
+                        1.0, // spacing
+                        raylib_color,
+                    );
+                } else {
+                    d.draw_text(text, text_x as i32, position.y as i32, *font_size as i32, raylib_color);
+                }
+            },
+            RenderCommand::DrawCanvasEllipse { center, rx, ry, fill_color, stroke_color, stroke_width } => {
+                // Draw fill if specified
+                if let Some(fill) = fill_color {
+                    let fill_raylib_color = vec4_to_raylib_color(*fill);
+                    // Raylib doesn't have a direct ellipse function, so approximate with a polygon
+                    let num_segments = 32;
+                    let mut points = Vec::new();
+                    for i in 0..num_segments {
+                        let angle = (i as f32 / num_segments as f32) * 2.0 * std::f32::consts::PI;
+                        let x = center.x + rx * angle.cos();
+                        let y = center.y + ry * angle.sin();
+                        points.push(Vector2::new(x, y));
+                    }
+                    
+                    // Draw filled polygon (simplified approximation)
+                    for i in 1..(points.len() - 1) {
+                        d.draw_triangle(points[0], points[i], points[i + 1], fill_raylib_color);
+                    }
+                }
+                
+                // Draw stroke if specified
+                if let Some(stroke) = stroke_color {
+                    let stroke_raylib_color = vec4_to_raylib_color(*stroke);
+                    let num_segments = 32;
+                    for i in 0..num_segments {
+                        let angle1 = (i as f32 / num_segments as f32) * 2.0 * std::f32::consts::PI;
+                        let angle2 = ((i + 1) as f32 / num_segments as f32) * 2.0 * std::f32::consts::PI;
+                        let x1 = center.x + rx * angle1.cos();
+                        let y1 = center.y + ry * angle1.sin();
+                        let x2 = center.x + rx * angle2.cos();
+                        let y2 = center.y + ry * angle2.sin();
+                        
+                        d.draw_line_ex(
+                            Vector2::new(x1, y1),
+                            Vector2::new(x2, y2),
+                            *stroke_width,
+                            stroke_raylib_color
+                        );
+                    }
+                }
+            },
+            RenderCommand::DrawCanvasPolygon { points, fill_color, stroke_color, stroke_width } => {
+                if points.len() < 3 {
+                    return Ok(()); // Need at least 3 points for a polygon
+                }
+                
+                let raylib_points: Vec<Vector2> = points.iter()
+                    .map(|p| Vector2::new(p.x, p.y))
+                    .collect();
+                
+                // Draw fill if specified
+                if let Some(fill) = fill_color {
+                    let fill_raylib_color = vec4_to_raylib_color(*fill);
+                    // Triangulate the polygon for filling (simple fan triangulation from first vertex)
+                    for i in 1..(raylib_points.len() - 1) {
+                        d.draw_triangle(raylib_points[0], raylib_points[i], raylib_points[i + 1], fill_raylib_color);
+                    }
+                }
+                
+                // Draw stroke if specified
+                if let Some(stroke) = stroke_color {
+                    let stroke_raylib_color = vec4_to_raylib_color(*stroke);
+                    for i in 0..raylib_points.len() {
+                        let next_i = (i + 1) % raylib_points.len();
+                        d.draw_line_ex(raylib_points[i], raylib_points[next_i], *stroke_width, stroke_raylib_color);
+                    }
+                }
+            },
+            RenderCommand::DrawCanvasPath { path_data, fill_color, stroke_color, stroke_width } => {
+                // SVG path parsing is complex - for now, just draw a placeholder
+                eprintln!("[RAYLIB] DrawCanvasPath not fully implemented, path_data: {}", path_data);
+                
+                // Draw a simple placeholder rectangle to indicate path rendering
+                if let Some(fill) = fill_color {
+                    let fill_raylib_color = vec4_to_raylib_color(*fill);
+                    d.draw_rectangle(10, 10, 50, 20, fill_raylib_color);
+                }
+                
+                if let Some(stroke) = stroke_color {
+                    let stroke_raylib_color = vec4_to_raylib_color(*stroke);
+                    d.draw_rectangle_lines_ex(Rectangle::new(10.0, 10.0, 50.0, 20.0), *stroke_width, stroke_raylib_color);
+                }
+                
+                // TODO: Implement SVG path parsing and rendering
+                d.draw_text("SVG Path", 15, 15, 10, Color::WHITE);
+            },
+            RenderCommand::DrawCanvasImage { source, position, size, opacity } => {
+                // Similar to regular DrawImage but for canvas context
+                if let Some(texture) = textures.get(source) {
+                    let dest_rect = Rectangle::new(position.x, position.y, size.x, size.y);
+                    let source_rect = Rectangle::new(0.0, 0.0, texture.width as f32, texture.height as f32);
+                    let tint = Color::new(255, 255, 255, (*opacity * 255.0) as u8);
+                    
+                    d.draw_texture_pro(
+                        texture,
+                        source_rect,
+                        dest_rect,
+                        Vector2::zero(),
+                        0.0, // rotation
+                        tint,
+                    );
+                } else {
+                    // Draw placeholder for missing image
+                    let placeholder_color = Color::new(100, 100, 100, (*opacity * 255.0) as u8);
+                    d.draw_rectangle(position.x as i32, position.y as i32, size.x as i32, size.y as i32, placeholder_color);
+                    d.draw_text("IMG", (position.x + 5.0) as i32, (position.y + 5.0) as i32, 12, Color::WHITE);
+                }
             }
             // WASM View rendering commands
             RenderCommand::BeginWasmView { wasm_id: _, position: _, size: _ } => {
@@ -1096,6 +1320,119 @@ fn resolve_image_path_static(path: &str) -> Option<String> {
     }
     
     eprintln!("[RAYLIB] Image not found in any location: {}", path);
+    None
+}
+
+#[derive(Debug)]
+struct BoxShadowValues {
+    offset_x: f32,
+    offset_y: f32,
+    blur_radius: f32,
+    spread_radius: f32,
+    color: Vec4,
+}
+
+/// Parse CSS box-shadow string
+/// Format: "offset-x offset-y blur-radius spread-radius color"
+/// Example: "0 4px 6px rgba(0, 0, 0, 0.1)" or "2px 2px 4px #00000040"
+fn parse_box_shadow(shadow_str: &str) -> Option<BoxShadowValues> {
+    let parts: Vec<&str> = shadow_str.trim().split_whitespace().collect();
+    
+    if parts.len() < 3 {
+        return None; // Need at least offset-x, offset-y, and color
+    }
+    
+    // Parse offset-x and offset-y (required)
+    let offset_x = parse_pixel_value(parts.get(0)?);
+    let offset_y = parse_pixel_value(parts.get(1)?);
+    
+    // Parse optional blur-radius and spread-radius
+    let mut blur_radius = 0.0;
+    let mut spread_radius = 0.0;
+    let mut color_index = 2;
+    
+    // Check if we have more numeric values before the color
+    if parts.len() > 3 {
+        // Try to parse as numeric value
+        if let Ok(_) = parts[2].trim_end_matches("px").parse::<f32>() {
+            blur_radius = parse_pixel_value(parts[2]);
+            color_index = 3;
+            
+            if parts.len() > 4 {
+                if let Ok(_) = parts[3].trim_end_matches("px").parse::<f32>() {
+                    spread_radius = parse_pixel_value(parts[3]);
+                    color_index = 4;
+                }
+            }
+        }
+    }
+    
+    // Parse color (could be rgba() function or hex)
+    let color_str = if color_index < parts.len() {
+        if parts[color_index].starts_with("rgba(") {
+            // Reconstruct rgba() function from remaining parts
+            parts[color_index..].join(" ")
+        } else {
+            parts[color_index].to_string()
+        }
+    } else {
+        "#00000040".to_string() // Default shadow color
+    };
+    
+    let color = parse_color_string(&color_str)?;
+    
+    Some(BoxShadowValues {
+        offset_x,
+        offset_y,
+        blur_radius,
+        spread_radius,
+        color,
+    })
+}
+
+/// Simple pixel value parser for shadow values
+fn parse_pixel_value(value: &str) -> f32 {
+    if value.ends_with("px") {
+        value.trim_end_matches("px").parse().unwrap_or(0.0)
+    } else {
+        value.parse().unwrap_or(0.0)
+    }
+}
+
+/// Parse color string (hex or rgba)
+fn parse_color_string(color_str: &str) -> Option<Vec4> {
+    let color_str = color_str.trim();
+    
+    if color_str.starts_with("rgba(") && color_str.ends_with(")") {
+        // Parse rgba(r, g, b, a)
+        let inner = &color_str[5..color_str.len()-1];
+        let parts: Vec<&str> = inner.split(',').collect();
+        if parts.len() == 4 {
+            let r = parts[0].trim().parse::<f32>().ok()? / 255.0;
+            let g = parts[1].trim().parse::<f32>().ok()? / 255.0;
+            let b = parts[2].trim().parse::<f32>().ok()? / 255.0;
+            let a = parts[3].trim().parse::<f32>().ok()?;
+            return Some(Vec4::new(r, g, b, a));
+        }
+    } else if color_str.starts_with("#") {
+        // Parse hex color
+        let hex = &color_str[1..];
+        if hex.len() == 6 {
+            // #RRGGBB
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f32 / 255.0;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()? as f32 / 255.0;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()? as f32 / 255.0;
+            return Some(Vec4::new(r, g, b, 1.0));
+        } else if hex.len() == 8 {
+            // #RRGGBBAA
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f32 / 255.0;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()? as f32 / 255.0;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()? as f32 / 255.0;
+            let a = u8::from_str_radix(&hex[6..8], 16).ok()? as f32 / 255.0;
+            return Some(Vec4::new(r, g, b, a));
+        }
+    }
+    
     None
 }
 

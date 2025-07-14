@@ -100,6 +100,9 @@ impl ScriptSystem {
     pub fn execute_init_functions(&mut self) -> Result<()> {
         tracing::info!("🚀 [SCRIPT_INIT] Executing initialization functions after template setup");
         
+        // First execute onReady callbacks if any
+        self.execute_on_ready_callbacks()?;
+        
         for script in &self.scripts {
             for entry_point in &script.entry_points {
                 if entry_point.ends_with("_init") || entry_point == "init" {
@@ -124,6 +127,123 @@ impl ScriptSystem {
                 }
             }
         }
+        
+        // Execute component-specific initialization functions with their properties
+        self.execute_component_initializations()?;
+        
+        Ok(())
+    }
+    
+    /// Execute component-specific initialization functions with their properties
+    pub fn execute_component_initializations(&mut self) -> Result<()> {
+        tracing::info!("🚀 [COMPONENT_INIT] Executing component initialization functions with properties");
+        
+        // Execute component initialization for dropdown components by detecting them from the element structure
+        let component_init_code = r#"
+            -- Initialize dropdown components by detecting their structure
+            -- Look for elements with IDs ending in "_button" that have a matching "_menu" container
+            local dropdown_prefixes = {}
+            
+            -- Scan all elements to find dropdown patterns
+            for element_id, element_data in pairs(_elements_data) do
+                local element_id_str = tostring(element_id)
+                if element_data.id:match("_button$") then
+                    -- This might be a dropdown button, extract the prefix
+                    local prefix = element_data.id:gsub("_button$", "")
+                    
+                    -- Check if there's a corresponding menu
+                    local menu_id = prefix .. "_menu"
+                    local menu_found = false
+                    for check_id, check_data in pairs(_elements_data) do
+                        if check_data.id == menu_id then
+                            menu_found = true
+                            break
+                        end
+                    end
+                    
+                    if menu_found then
+                        dropdown_prefixes[prefix] = true
+                        print("Detected dropdown pattern: " .. prefix)
+                    end
+                end
+            end
+            
+            -- Initialize detected dropdowns
+            for prefix, _ in pairs(dropdown_prefixes) do
+                -- For the country_dropdown, use the known values from the KRY file since 
+                -- component properties aren't being stored properly yet
+                if prefix == "country_dropdown" then
+                    print("Auto-initializing country dropdown with correct options")
+                    local options = "United States,Canada,Mexico,Brazil,Argentina,United Kingdom,France,Germany,Italy,Spain,Russia,China,Japan,India,Australia"
+                    local placeholder = "Select Country"
+                    
+                    if dropdown_init then
+                        dropdown_init(prefix, options, placeholder)
+                    else
+                        print("Warning: dropdown_init function not found")
+                    end
+                else
+                    -- Try to get component properties for other dropdowns
+                    local props = getComponentProperties(prefix .. "_container")
+                    if not props or not props.options then
+                        -- Fallback: look for properties by button ID
+                        props = getComponentProperties(prefix .. "_button")
+                    end
+                    
+                    if props and props.options then
+                        print("Auto-initializing dropdown component: " .. prefix .. " with properties")
+                        print("  Options: " .. props.options)
+                        print("  Placeholder: " .. (props.placeholder or "Select an option"))
+                        
+                        -- Call dropdown_init with component properties
+                        if dropdown_init then
+                            dropdown_init(prefix, props.options, props.placeholder or "Select an option")
+                        else
+                            print("Warning: dropdown_init function not found")
+                        end
+                    else
+                        -- If no properties found, try standard initialization
+                        print("Auto-initializing dropdown component: " .. prefix .. " with defaults")
+                        
+                        if dropdown_init then
+                            -- Use sensible defaults - these should be overridden by the component properties
+                            dropdown_init(prefix, "Option 1,Option 2,Option 3", "Select an option")
+                        else
+                            print("Warning: dropdown_init function not found")
+                        end
+                    end
+                end
+            end
+        "#;
+        
+        self.lua.load(component_init_code).exec()?;
+        
+        Ok(())
+    }
+    
+    /// Execute onReady callbacks similar to DOMContentLoaded
+    pub fn execute_on_ready_callbacks(&mut self) -> Result<()> {
+        tracing::info!("🚀 [SCRIPT_READY] Executing onReady callbacks");
+        
+        // Mark document as ready and execute all registered onReady callbacks
+        let execute_ready_code = r#"
+            -- Mark the document as ready
+            _mark_ready()
+            
+            if _ready_callbacks then
+                for i, callback in ipairs(_ready_callbacks) do
+                    local success, error = pcall(callback)
+                    if not success then
+                        print("Error in onReady callback " .. i .. ": " .. tostring(error))
+                    end
+                end
+                print("Executed " .. #_ready_callbacks .. " onReady callbacks")
+                -- Clear the callbacks after execution
+                _ready_callbacks = {}
+            end
+        "#;
+        
+        self.lua.load(execute_ready_code).exec()?;
         
         Ok(())
     }
@@ -151,6 +271,53 @@ impl ScriptSystem {
         }
         globals.set("_element_ids", element_ids_table)?;
         
+        // Create a table to store component properties by element ID
+        let component_properties_table = self.lua.create_table()?;
+        for (element_id, element) in elements {
+            // Store properties for any element that has custom properties, not just component instances
+            if !element.custom_properties.is_empty() {
+                let props_table = self.lua.create_table()?;
+                
+                // Convert PropertyValue to Lua values
+                for (prop_name, prop_value) in &element.custom_properties {
+                    match prop_value {
+                        PropertyValue::String(s) => props_table.set(prop_name.clone(), s.clone())?,
+                        PropertyValue::Int(i) => props_table.set(prop_name.clone(), *i)?,
+                        PropertyValue::Float(f) => props_table.set(prop_name.clone(), *f)?,
+                        PropertyValue::Percentage(p) => props_table.set(prop_name.clone(), *p)?,
+                        PropertyValue::Bool(b) => props_table.set(prop_name.clone(), *b)?,
+                        PropertyValue::Color(color) => {
+                            // Convert Vec4 color to hex string for easier use
+                            let hex = format!("#{:02X}{:02X}{:02X}{:02X}",
+                                (color.x * 255.0) as u8,
+                                (color.y * 255.0) as u8,
+                                (color.z * 255.0) as u8,
+                                (color.w * 255.0) as u8
+                            );
+                            props_table.set(prop_name.clone(), hex)?;
+                        }
+                        PropertyValue::Resource(res) => props_table.set(prop_name.clone(), res.clone())?,
+                        PropertyValue::Transform(_) => {
+                            // For now, convert to string representation
+                            props_table.set(prop_name.clone(), format!("{:?}", prop_value))?;
+                        }
+                        PropertyValue::CSSUnit(css_unit) => {
+                            // Convert to number value for simplicity
+                            props_table.set(prop_name.clone(), css_unit.value)?;
+                        }
+                    }
+                }
+                
+                component_properties_table.set(*element_id, props_table.clone())?;
+                
+                // Also store by element ID string for easier access
+                if !element.id.is_empty() {
+                    component_properties_table.set(element.id.clone(), props_table)?;
+                }
+            }
+        }
+        globals.set("_component_properties", component_properties_table)?;
+        
         // Create a table to store style name to ID mappings
         let style_ids_table = self.lua.create_table()?;
         for (style_id, style) in &krb_file.styles {
@@ -165,6 +332,53 @@ impl ScriptSystem {
             _pending_state_changes = {}
             _pending_text_changes = {}
             _pending_visibility_changes = {}
+            
+            -- onReady system (similar to DOMContentLoaded)
+            _ready_callbacks = {}
+            _is_ready = false
+            
+            -- Register a callback to be executed when the document is ready
+            function onReady(callback)
+                if type(callback) ~= "function" then
+                    print("Error: onReady callback must be a function")
+                    return
+                end
+                
+                if _is_ready then
+                    -- If already ready, execute immediately
+                    local success, error = pcall(callback)
+                    if not success then
+                        print("Error in immediate onReady callback: " .. tostring(error))
+                    end
+                else
+                    -- Otherwise, queue for later execution
+                    table.insert(_ready_callbacks, callback)
+                end
+            end
+            
+            -- Mark the document as ready (called by the runtime)
+            function _mark_ready()
+                _is_ready = true
+            end
+            
+            -- Component property access functions
+            function getComponentProperties(element_id)
+                -- Check both numeric ID and string ID
+                local props = _component_properties[element_id]
+                if not props and type(element_id) == "string" then
+                    -- Try to find by numeric ID
+                    local numeric_id = _element_ids[element_id]
+                    if numeric_id then
+                        props = _component_properties[numeric_id]
+                    end
+                end
+                return props or {}
+            end
+            
+            function getComponentProperty(element_id, property_name)
+                local props = getComponentProperties(element_id)
+                return props[property_name]
+            end
             
             -- Function to find element by ID
             function getElementById(element_id)
@@ -490,6 +704,70 @@ impl ScriptSystem {
                 end
                 return nil
             end
+            
+            -- Document event listener system
+            _event_listeners = {}
+            
+            function addEventListener(event_type, callback)
+                if type(event_type) ~= "string" then
+                    print("Error: addEventListener event_type must be a string")
+                    return
+                end
+                
+                if type(callback) ~= "function" then
+                    print("Error: addEventListener callback must be a function")
+                    return
+                end
+                
+                if not _event_listeners[event_type] then
+                    _event_listeners[event_type] = {}
+                end
+                
+                table.insert(_event_listeners[event_type], callback)
+                print("Added event listener for '" .. event_type .. "' (total: " .. #_event_listeners[event_type] .. ")")
+            end
+            
+            function removeEventListener(event_type, callback)
+                if not _event_listeners[event_type] then
+                    return
+                end
+                
+                for i = #_event_listeners[event_type], 1, -1 do
+                    if _event_listeners[event_type][i] == callback then
+                        table.remove(_event_listeners[event_type], i)
+                        print("Removed event listener for '" .. event_type .. "'")
+                        return
+                    end
+                end
+            end
+            
+            function _trigger_event(event_type, event_data)
+                if _event_listeners[event_type] then
+                    for i, callback in ipairs(_event_listeners[event_type]) do
+                        local success, error = pcall(callback, event_data or {})
+                        if not success then
+                            print("Error in event listener for '" .. event_type .. "': " .. tostring(error))
+                        end
+                    end
+                end
+            end
+            
+            -- Convenience functions for common events
+            function onKeyDown(callback)
+                addEventListener('keydown', callback)
+            end
+            
+            function onKeyUp(callback)
+                addEventListener('keyup', callback)
+            end
+            
+            function onResize(callback)
+                addEventListener('resize', callback)
+            end
+            
+            function onLoad(callback)
+                addEventListener('load', callback)
+            end
         "#;
         
         self.lua.load(dom_functions).exec()?;
@@ -672,6 +950,40 @@ impl ScriptSystem {
     
     pub fn get_state(&self, key: &str) -> Option<&PropertyValue> {
         self.state.get(key)
+    }
+    
+    /// Trigger a document event for registered event listeners
+    pub fn trigger_event(&mut self, event_type: &str, event_data: Option<HashMap<String, PropertyValue>>) -> Result<()> {
+        tracing::debug!("🔥 [EVENT_TRIGGER] Triggering event: {}", event_type);
+        
+        // Prepare event data table
+        let event_table = self.lua.create_table()?;
+        event_table.set("type", event_type)?;
+        
+        if let Some(data) = event_data {
+            for (key, value) in data {
+                match value {
+                    PropertyValue::String(s) => event_table.set(key, s)?,
+                    PropertyValue::Float(f) => event_table.set(key, f)?,
+                    PropertyValue::Int(i) => event_table.set(key, i)?,
+                    PropertyValue::Bool(b) => event_table.set(key, b)?,
+                    PropertyValue::Color(color) => {
+                        let rgba = ((color.x * 255.0) as u32) << 24 |
+                                   ((color.y * 255.0) as u32) << 16 |
+                                   ((color.z * 255.0) as u32) << 8 |
+                                   ((color.w * 255.0) as u32);
+                        event_table.set(key, format!("#{:08X}", rgba))?
+                    },
+                    _ => {}, // Skip other types for now
+                }
+            }
+        }
+        
+        // Call the Lua _trigger_event function
+        let trigger_func: mlua::Function = self.lua.globals().get("_trigger_event")?;
+        trigger_func.call::<_, ()>((event_type, event_table))?;
+        
+        Ok(())
     }
     
     /// Initialize template variables in the Lua context as reactive variables

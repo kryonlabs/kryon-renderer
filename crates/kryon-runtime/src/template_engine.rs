@@ -76,18 +76,27 @@ impl TemplateEngine {
     
     /// Update all elements that have template bindings
     pub fn update_elements(&self, elements: &mut HashMap<ElementId, Element>) {
+        eprintln!("[TEMPLATE_UPDATE] Updating {} bindings on {} elements", self.bindings.len(), elements.len());
         for binding in &self.bindings {
             if let Some(element) = elements.get_mut(&(binding.element_index as u32)) {
                 let evaluated_value = self.evaluate_expression(&binding.template_expression);
                 
+                eprintln!("[TEMPLATE_UPDATE] Element {}: '{}' -> '{}'", 
+                    binding.element_index, binding.template_expression, evaluated_value);
+                
                 // Update the element property based on property_id
                 match binding.property_id {
                     0x08 => { // TextContent property
-                        element.text = evaluated_value;
+                        let old_text = element.text.clone();
+                        element.text = evaluated_value.clone();
+                        eprintln!("[TEMPLATE_UPDATE] Element {} text updated: '{}' -> '{}'", 
+                            binding.element_index, old_text, evaluated_value);
                     }
                     // Add more property types as needed
                     _ => {}
                 }
+            } else {
+                eprintln!("[TEMPLATE_UPDATE] Element {} not found in elements map", binding.element_index);
             }
         }
     }

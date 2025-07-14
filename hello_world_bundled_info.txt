@@ -1,0 +1,13 @@
+Kryon Standalone Application
+===========================
+Original KRB: ../kryon-examples/01_getting_started/hello_world.krb
+Backend: raylib
+Build Date: Mon Jul 14 08:04:53 AM -05 2025
+Platform: Linux x86_64
+
+This is a self-contained executable that includes:
+- The Kryon runtime
+- The raylib rendering backend
+- The embedded KRB application data
+
+No additional files or dependencies are required to run this application.

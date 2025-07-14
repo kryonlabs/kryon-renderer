@@ -57,7 +57,8 @@ impl TaffyLayoutEngine {
         // Cache layout results
         self.cache_layouts(elements)?;
         
-        // Debug: Print computed layouts
+        // Debug: Print computed layouts  
+        eprintln!("[TAFFY_CACHE] Layout cache has {} entries", self.layout_cache.len());
         for (&element_id, layout) in &self.layout_cache {
             eprintln!("[TAFFY_COMPUTED] Element {}: pos=({}, {}), size=({}, {})", 
                 element_id, layout.location.x, layout.location.y, layout.size.width, layout.size.height);
@@ -139,50 +140,63 @@ impl TaffyLayoutEngine {
         // Apply modern CSS properties (these override defaults)
         self.apply_custom_properties(&mut style, element);
 
-        // Apply size constraints from element
-        if element.size.x > 0.0 {
-            // For containers with explicit width, check if it should be treated as 100% fill
-            // This prevents positioning issues with justify_content when width equals available space
-            if element.element_type == kryon_core::ElementType::Container {
-                // Check if this explicit width is likely meant to fill available space
-                // Common patterns: width matches content area after padding
-                let should_use_percentage = self.should_use_percentage_width(element, element.size.x);
-                
-                if should_use_percentage {
-                    style.size.width = Dimension::Percent(1.0);
-                    eprintln!("[TAFFY_WIDTH_FIX] Element '{}': Converting explicit width {}px to 100% for proper justify_content behavior", element.id, element.size.x);
-                } else {
-                    style.size.width = Dimension::Length(element.size.x);
-                }
-            } else {
-                style.size.width = Dimension::Length(element.size.x);
-            }
+        // Apply size constraints from element - check both size and layout_size for width
+        let explicit_width = if let kryon_core::LayoutDimension::Pixels(width) = element.layout_size.width {
+            if width > 0.0 { Some(width) } else { None }
+        } else { 
+            if element.size.x > 0.0 { Some(element.size.x) } else { None }
+        };
+        
+        // Apply size constraints from element - check both size and layout_size for height  
+        let explicit_height = if let kryon_core::LayoutDimension::Pixels(height) = element.layout_size.height {
+            if height > 0.0 { Some(height) } else { None }
+        } else { 
+            if element.size.y > 0.0 { Some(element.size.y) } else { None }
+        };
+        
+        if let Some(width) = explicit_width {
+            style.size.width = Dimension::Length(width);
+            eprintln!("[TAFFY_SIZE] Element '{}': Using width {}px from layout_size", element.id, width);
         } else if element.element_type == kryon_core::ElementType::Container {
-            // Containers without explicit width should fill available space
-            style.size.width = Dimension::Percent(1.0);
-            // eprintln!("[TAFFY_CONTAINER] Set container width to 100%");
+            eprintln!("[TAFFY_CONTAINER] Container '{}': no explicit width, using intrinsic sizing", element.id);
         }
-        if element.size.y > 0.0 {
-            style.size.height = Dimension::Length(element.size.y);
+        
+        if let Some(height) = explicit_height {
+            style.size.height = Dimension::Length(height);
+            eprintln!("[TAFFY_SIZE] Element '{}': Using height {}px from layout_size", element.id, height);
         }
 
-        // Apply position from element (for absolute positioning)
-        if element.position.x != 0.0 || element.position.y != 0.0 {
+        // Apply position from element ONLY if it's explicitly set as absolute positioning
+        // Don't treat computed layout positions as absolute positioning
+        let has_position_absolute = element.custom_properties.get("position")
+            .map(|v| if let kryon_core::PropertyValue::String(s) = v { s == "absolute" } else { false })
+            .unwrap_or(false);
+        
+        // Check if element has centering layout that should override absolute positioning
+        let has_centering_layout = element.custom_properties.contains_key("justify_content") || 
+                                  element.custom_properties.contains_key("align_items");
+        
+        if has_position_absolute && (element.position.x != 0.0 || element.position.y != 0.0) && !has_centering_layout {
             style.position = Position::Absolute;
             style.inset.left = LengthPercentage::Length(element.position.x).into();
             style.inset.top = LengthPercentage::Length(element.position.y).into();
+            eprintln!("[TAFFY_ABSOLUTE] Element '{}': applying absolute position ({}, {})", 
+                element.id, element.position.x, element.position.y);
+        } else if has_position_absolute && has_centering_layout {
+            eprintln!("[TAFFY_CENTER_OVERRIDE] Element '{}': ignoring absolute position ({}, {}) in favor of flex centering", 
+                element.id, element.position.x, element.position.y);
         }
 
         // Handle text element intrinsic sizing
         if element.element_type == kryon_core::ElementType::Text || element.element_type == kryon_core::ElementType::Link {
             style.display = Display::Block;
             
-            // Only use full width if no explicit width was set in CSS
-            // Check if width is still auto (not set explicitly)
+            // Text elements should fit within their parent container
+            // Only calculate width if no explicit width was set
             if style.size.width == Dimension::Auto {
-                style.size.width = Dimension::Percent(1.0); // Fill 100% of parent container
+                // Leave width as Auto - text will fill the parent container
                 let element_name = if element.element_type == kryon_core::ElementType::Text { "Text" } else { "Link" };
-                eprintln!("[TAFFY_TEXT_SIZE] {} Element '{}': using 100% width for consistent alignment (no explicit width)", element_name, element.id);
+                eprintln!("[TAFFY_TEXT_SIZE] {} Element '{}': using parent container width", element_name, element.id);
             } else {
                 eprintln!("[TAFFY_TEXT_SIZE] Element '{}': respecting explicit width {:?}", element.id, style.size.width);
             }
@@ -196,6 +210,7 @@ impl TaffyLayoutEngine {
             // Set default display based on element type
             style.display = match element.element_type {
                 kryon_core::ElementType::Container => Display::Flex,
+                kryon_core::ElementType::App => Display::Flex, // App should be flex container by default
                 kryon_core::ElementType::Button => Display::Block, // Buttons should be block-level for proper sizing
                 _ => Display::Block,
             };
@@ -210,8 +225,16 @@ impl TaffyLayoutEngine {
                 style.align_items = None;
                 style.justify_content = None;
             }
-            kryon_core::ElementType::App | kryon_core::ElementType::Container => {
-                // Ensure App and Container elements stay as flex containers if they have ANY flex properties
+            kryon_core::ElementType::App => {
+                // App elements should always be flex containers that center their content by default
+                style.display = Display::Flex;
+                style.flex_direction = FlexDirection::Column;
+                style.align_items = Some(AlignItems::Center);
+                style.justify_content = Some(JustifyContent::Center);
+                eprintln!("[TAFFY_APP_DEFAULTS] App '{}': setting default flex centering", element.id);
+            }
+            kryon_core::ElementType::Container => {
+                // Ensure Container elements stay as flex containers if they have ANY flex properties
                 let has_flex_direction = element.custom_properties.contains_key("flex_direction");
                 let has_justify_content = style.justify_content.is_some();
                 let has_align_items = style.align_items.is_some();
@@ -861,26 +884,49 @@ impl TaffyLayoutEngine {
                 // Store the computed size
                 computed_sizes.insert(element_id, Vec2::new(layout.size.width, layout.size.height));
 
-                // Compute absolute position
-                let absolute_position = if element.position.x != 0.0 || element.position.y != 0.0 {
-                    // Element has explicit position - use it as absolute position
-                    let abs_pos = Vec2::new(element.position.x, element.position.y);
-                    eprintln!("[TAFFY_LAYOUT] Element {}: explicit position ({}, {})", element_id, abs_pos.x, abs_pos.y);
-                    abs_pos
+                // Determine positioning behavior - check both custom_properties and element.position
+                let has_position_absolute = element.custom_properties.get("position")
+                    .map(|v| if let kryon_core::PropertyValue::String(s) = v { s == "absolute" } else { false })
+                    .unwrap_or(false);
+                let has_explicit_position = element.position.x != 0.0 || element.position.y != 0.0;
+
+                // Compute absolute position - ALWAYS use layout position for all elements
+                let taffy_offset = Vec2::new(layout.location.x, layout.location.y);
+                let absolute_position = parent_offset + taffy_offset;
+                eprintln!("[TAFFY_LAYOUT] Element {}: layout position parent_offset({}, {}) + taffy_offset({}, {}) = final({}, {})", 
+                    element_id, parent_offset.x, parent_offset.y, taffy_offset.x, taffy_offset.y, absolute_position.x, absolute_position.y);
+
+                // Check if element has centering layout that should override absolute positioning
+                let has_centering_layout = element.custom_properties.contains_key("justify_content") || 
+                                          element.custom_properties.contains_key("align_items");
+                
+                // If element has explicit positioning, add that to the layout position (unless overridden by centering)
+                let final_position = if has_explicit_position && has_position_absolute && !has_centering_layout {
+                    let pos_with_offset = absolute_position + Vec2::new(element.position.x, element.position.y);
+                    eprintln!("[TAFFY_LAYOUT] Element {}: absolute element, adding offset ({}, {}) = final({}, {})", 
+                        element_id, element.position.x, element.position.y, pos_with_offset.x, pos_with_offset.y);
+                    pos_with_offset
                 } else {
-                    // Element uses layout positioning - add to parent offset
-                    let taffy_offset = Vec2::new(layout.location.x, layout.location.y);
-                    let final_pos = parent_offset + taffy_offset;
-                    eprintln!("[TAFFY_LAYOUT] Element {}: layout position parent_offset({}, {}) + taffy_offset({}, {}) = final({}, {})", 
-                        element_id, parent_offset.x, parent_offset.y, taffy_offset.x, taffy_offset.y, final_pos.x, final_pos.y);
-                    final_pos
+                    if has_explicit_position && has_position_absolute && has_centering_layout {
+                        eprintln!("[TAFFY_LAYOUT] Element {}: skipping absolute offset ({}, {}) due to centering layout", 
+                            element_id, element.position.x, element.position.y);
+                    }
+                    absolute_position
                 };
 
-                computed_positions.insert(element_id, absolute_position);
+                computed_positions.insert(element_id, final_position);
 
-                // Recursively process children with the new absolute position as their parent offset
+                // For absolute positioned elements, they become the new positioning context for their children
+                // For relative/static positioned elements, pass through the current absolute position
+                let child_parent_offset = if has_position_absolute {
+                    final_position  // Children of absolute elements are positioned relative to the absolute element
+                } else {
+                    final_position  // Children continue using accumulated absolute position
+                };
+
+                // Recursively process children
                 for &child_id in &element.children {
-                    self.compute_absolute_positions(elements, child_id, absolute_position, computed_positions, computed_sizes);
+                    self.compute_absolute_positions(elements, child_id, child_parent_offset, computed_positions, computed_sizes);
                 }
             }
         }
@@ -918,7 +964,9 @@ impl crate::LayoutEngine for TaffyLayoutEngine {
         let mut computed_sizes = HashMap::new();
 
         // Compute absolute positions by traversing hierarchy
+        eprintln!("[LAYOUT_DEBUG] Starting compute_absolute_positions for root {}", root_id);
         self.compute_absolute_positions(elements, root_id, Vec2::ZERO, &mut computed_positions, &mut computed_sizes);
+        eprintln!("[LAYOUT_DEBUG] compute_absolute_positions completed. Positions: {}, Sizes: {}", computed_positions.len(), computed_sizes.len());
 
         crate::LayoutResult {
             computed_positions,
