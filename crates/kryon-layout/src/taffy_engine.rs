@@ -156,20 +156,30 @@ impl TaffyLayoutEngine {
         
         if let Some(width) = explicit_width {
             style.size.width = Dimension::Length(width);
-            // Preserve explicit width by preventing flex grow/shrink
-            style.flex_grow = 0.0;
-            style.flex_shrink = 0.0;
-            eprintln!("[TAFFY_SIZE] Element '{}': Using width {}px from layout_size (flex-shrink: 0)", element.id, width);
+            // Only prevent flex grow/shrink if both dimensions are explicitly set
+            // This allows buttons with explicit height to still grow horizontally
+            if explicit_height.is_some() {
+                style.flex_grow = 0.0;
+                style.flex_shrink = 0.0;
+                eprintln!("[TAFFY_SIZE] Element '{}': Using width {}px from layout_size (both dimensions set, flex-shrink: 0)", element.id, width);
+            } else {
+                eprintln!("[TAFFY_SIZE] Element '{}': Using width {}px from layout_size (height flexible)", element.id, width);
+            }
         } else if element.element_type == kryon_core::ElementType::Container {
             eprintln!("[TAFFY_CONTAINER] Container '{}': no explicit width, using intrinsic sizing", element.id);
         }
         
         if let Some(height) = explicit_height {
             style.size.height = Dimension::Length(height);
-            // Preserve explicit height by preventing flex grow/shrink
-            style.flex_grow = 0.0;
-            style.flex_shrink = 0.0;
-            eprintln!("[TAFFY_SIZE] Element '{}': Using height {}px from layout_size (flex-shrink: 0)", element.id, height);
+            // Only prevent flex grow/shrink if both dimensions are explicitly set
+            // This allows buttons with explicit height to still grow horizontally
+            if explicit_width.is_some() {
+                style.flex_grow = 0.0;
+                style.flex_shrink = 0.0;
+                eprintln!("[TAFFY_SIZE] Element '{}': Using height {}px from layout_size (both dimensions set, flex-shrink: 0)", element.id, height);
+            } else {
+                eprintln!("[TAFFY_SIZE] Element '{}': Using height {}px from layout_size (width flexible)", element.id, height);
+            }
         }
 
         // Apply position from element ONLY if it's explicitly set as absolute positioning
@@ -228,8 +238,17 @@ impl TaffyLayoutEngine {
                 // Buttons should behave as block elements that respect their explicit dimensions
                 eprintln!("[TAFFY_BUTTON_OVERRIDE] Setting button '{}' as block element with fixed dimensions", element.id);
                 style.display = Display::Block;
+                
+                // Check if flex_grow was explicitly set in custom properties
+                let has_explicit_flex_grow = element.custom_properties.contains_key("flex_grow");
+                
                 // Force buttons to preserve their size by making them non-flexible
-                style.flex_grow = 0.0;
+                if !has_explicit_flex_grow {
+                    style.flex_grow = 0.0;
+                    eprintln!("[TAFFY_BUTTON_FLEX] Button '{}': no explicit flex_grow, setting to 0.0", element.id);
+                } else {
+                    eprintln!("[TAFFY_BUTTON_FLEX] Button '{}': respecting explicit flex_grow = {}", element.id, style.flex_grow);
+                }
                 style.flex_shrink = 0.0;
                 style.flex_basis = taffy::Dimension::Auto; // Don't use flex-basis
                 // For buttons with explicit size, make them absolutely positioned within their flex container
@@ -251,11 +270,20 @@ impl TaffyLayoutEngine {
             }
             kryon_core::ElementType::App => {
                 // App elements should always be flex containers that center their content by default
-                style.display = Display::Flex;
-                style.flex_direction = FlexDirection::Column;
-                style.align_items = Some(AlignItems::Center);
-                style.justify_content = Some(JustifyContent::Center);
-                eprintln!("[TAFFY_APP_DEFAULTS] App '{}': setting default flex centering", element.id);
+                // Only set defaults if not explicitly overridden by custom properties
+                if !element.custom_properties.contains_key("display") {
+                    style.display = Display::Flex;
+                }
+                if !element.custom_properties.contains_key("flex_direction") {
+                    style.flex_direction = FlexDirection::Column;
+                }
+                if !element.custom_properties.contains_key("align_items") {
+                    style.align_items = Some(AlignItems::Center);
+                }
+                if !element.custom_properties.contains_key("justify_content") {
+                    style.justify_content = Some(JustifyContent::Center);
+                }
+                eprintln!("[TAFFY_APP_DEFAULTS] App '{}': setting default flex centering (respecting custom properties)", element.id);
             }
             kryon_core::ElementType::Container => {
                 // Ensure Container elements stay as flex containers if they have ANY flex properties
@@ -469,9 +497,10 @@ impl TaffyLayoutEngine {
                 PropertyValue::Int(i) => *i as f32,
                 _ => 0.0,
             };
+            // eprintln!("[TAFFY_FLEX] Element '{}' has flex_grow: {} (value: {:?})", element.id, grow_value, value);
             if grow_value > 0.0 {
                 style.flex_grow = grow_value;
-                // eprintln!("[TAFFY_FLEX] Applied flex_grow: {} to element", grow_value);
+                // eprintln!("[TAFFY_FLEX] Applied flex_grow: {} to element '{}'", grow_value, element.id);
             }
         }
         if let Some(value) = element.custom_properties.get("flex_shrink") {

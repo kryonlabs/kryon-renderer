@@ -47,8 +47,10 @@ pub struct ScriptSystem {
     template_variables: HashMap<String, String>,
     /// Element data for DOM API
     elements_data: HashMap<ElementId, Element>,
-    /// KRB file data for style and resource access
-    krb_file: Option<KRBFile>,
+    /// Style mappings from KRB file for bridge data creation
+    style_mappings: HashMap<u8, kryon_core::Style>,
+    /// Bridge data for setting up new engines
+    bridge_data: Option<BridgeData>,
 }
 
 impl ScriptSystem {
@@ -60,19 +62,23 @@ impl ScriptSystem {
             registry,
             template_variables: HashMap::new(),
             elements_data: HashMap::new(),
-            krb_file: None,
+            style_mappings: HashMap::new(),
+            bridge_data: None,
         })
     }
     
     /// Initialize the script system with KRB file data
     pub fn initialize(&mut self, krb_file: &KRBFile, elements: &HashMap<ElementId, Element>) -> Result<()> {
-        // Store a reference to the KRB file (we don't need to clone the whole thing)
-        // self.krb_file = Some(krb_file.clone());
+        // Store style mappings from KRB file (only what we need for bridge data)
+        self.style_mappings = krb_file.styles.clone();
         self.elements_data = elements.clone();
         
         // Initialize bridge data for all engines
         let bridge_data = self.create_bridge_data(krb_file, elements)?;
         self.registry.setup_bridge_for_all_engines(&bridge_data)?;
+        
+        // Store bridge data for future engines
+        self.bridge_data = Some(bridge_data);
         
         Ok(())
     }
@@ -90,8 +96,18 @@ impl ScriptSystem {
         // Convert ScriptLanguage to string for engine lookup
         let language = &script.language;
         
+        // Check if engine exists before creating it
+        let engine_exists = self.registry.get_engine(language).is_some();
+        
         // Get or create engine for this language
         let engine = self.registry.get_or_create_engine(language)?;
+        
+        // If engine was just created, set up the bridge
+        if !engine_exists {
+            if let Some(bridge_data) = &self.bridge_data {
+                engine.setup_bridge(bridge_data)?;
+            }
+        }
         
         // Load bytecode into the engine
         engine.load_bytecode(&script.name, &script.bytecode)?;
@@ -241,10 +257,7 @@ impl ScriptSystem {
         // Refresh elements data in engines if changes were made
         if any_changes {
             self.elements_data = elements.clone();
-            let bridge_data = self.create_bridge_data(
-                self.krb_file.as_ref().ok_or_else(|| ScriptError::NotInitialized)?,
-                elements
-            )?;
+            let bridge_data = self.create_bridge_data_from_stored(elements)?;
             self.registry.setup_bridge_for_all_engines(&bridge_data)?;
         }
         
@@ -273,6 +286,48 @@ impl ScriptSystem {
         // Create style ID mappings
         let mut style_ids = HashMap::new();
         for (style_id, style) in &krb_file.styles {
+            style_ids.insert(style.name.clone(), *style_id);
+        }
+        
+        // Create component properties
+        let mut component_properties = HashMap::new();
+        for (element_id, element) in elements {
+            if !element.custom_properties.is_empty() {
+                let mut props = HashMap::new();
+                for (prop_name, prop_value) in &element.custom_properties {
+                    props.insert(prop_name.clone(), self.property_value_to_script_value(prop_value.clone()));
+                }
+                component_properties.insert(element_id.to_string(), props.clone());
+                
+                // Also store by string ID if available
+                if !element.id.is_empty() {
+                    component_properties.insert(element.id.clone(), props.clone());
+                }
+            }
+        }
+        
+        Ok(BridgeData {
+            element_ids,
+            style_ids,
+            component_properties,
+            elements_data: elements.clone(),
+            template_variables: self.template_variables.clone(),
+        })
+    }
+    
+    /// Create bridge data using stored style mappings
+    fn create_bridge_data_from_stored(&self, elements: &HashMap<ElementId, Element>) -> Result<BridgeData> {
+        // Create element ID mappings
+        let mut element_ids = HashMap::new();
+        for (element_id, element) in elements {
+            if !element.id.is_empty() {
+                element_ids.insert(element.id.clone(), *element_id);
+            }
+        }
+        
+        // Create style ID mappings using stored style mappings
+        let mut style_ids = HashMap::new();
+        for (style_id, style) in &self.style_mappings {
             style_ids.insert(style.name.clone(), *style_id);
         }
         
