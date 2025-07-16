@@ -156,14 +156,20 @@ impl TaffyLayoutEngine {
         
         if let Some(width) = explicit_width {
             style.size.width = Dimension::Length(width);
-            eprintln!("[TAFFY_SIZE] Element '{}': Using width {}px from layout_size", element.id, width);
+            // Preserve explicit width by preventing flex grow/shrink
+            style.flex_grow = 0.0;
+            style.flex_shrink = 0.0;
+            eprintln!("[TAFFY_SIZE] Element '{}': Using width {}px from layout_size (flex-shrink: 0)", element.id, width);
         } else if element.element_type == kryon_core::ElementType::Container {
             eprintln!("[TAFFY_CONTAINER] Container '{}': no explicit width, using intrinsic sizing", element.id);
         }
         
         if let Some(height) = explicit_height {
             style.size.height = Dimension::Length(height);
-            eprintln!("[TAFFY_SIZE] Element '{}': Using height {}px from layout_size", element.id, height);
+            // Preserve explicit height by preventing flex grow/shrink
+            style.flex_grow = 0.0;
+            style.flex_shrink = 0.0;
+            eprintln!("[TAFFY_SIZE] Element '{}': Using height {}px from layout_size (flex-shrink: 0)", element.id, height);
         }
 
         // Apply position from element ONLY if it's explicitly set as absolute positioning
@@ -219,9 +225,27 @@ impl TaffyLayoutEngine {
         // Override display for specific element types (must be at the end)
         match element.element_type {
             kryon_core::ElementType::Button => {
-                eprintln!("[TAFFY_BUTTON_OVERRIDE] Setting button '{}' to Display::Block", element.id);
+                // Buttons should behave as block elements that respect their explicit dimensions
+                eprintln!("[TAFFY_BUTTON_OVERRIDE] Setting button '{}' as block element with fixed dimensions", element.id);
                 style.display = Display::Block;
-                // Reset flex properties that might have been set by layout_flags
+                // Force buttons to preserve their size by making them non-flexible
+                style.flex_grow = 0.0;
+                style.flex_shrink = 0.0;
+                style.flex_basis = taffy::Dimension::Auto; // Don't use flex-basis
+                // For buttons with explicit size, make them absolutely positioned within their flex container
+                if element.size.x > 0.0 || element.size.y > 0.0 {
+                    eprintln!("[TAFFY_BUTTON_SIZE_LOCK] Button '{}' has explicit size, preventing flex stretching", element.id);
+                    // Don't change to absolute position, but ensure min/max size constraints
+                    if element.size.x > 0.0 {
+                        style.min_size.width = taffy::Dimension::Length(element.size.x);
+                        style.max_size.width = taffy::Dimension::Length(element.size.x);
+                    }
+                    if element.size.y > 0.0 {
+                        style.min_size.height = taffy::Dimension::Length(element.size.y);
+                        style.max_size.height = taffy::Dimension::Length(element.size.y);
+                    }
+                }
+                // Reset flex container properties that might have been set by layout_flags
                 style.align_items = None;
                 style.justify_content = None;
             }
@@ -658,9 +682,15 @@ impl TaffyLayoutEngine {
             }
             kryon_core::ElementType::Button => {
                 style.display = Display::Block;
-                // Buttons get minimum sizing for flex containers
-                style.min_size.width = Dimension::Length(80.0);
-                style.min_size.height = Dimension::Length(40.0);
+                // Only apply minimum sizing if no explicit size was set
+                if style.size.width == Dimension::Auto {
+                    style.min_size.width = Dimension::Length(80.0);
+                }
+                if style.size.height == Dimension::Auto {
+                    style.min_size.height = Dimension::Length(40.0);
+                }
+                eprintln!("[TAFFY_BUTTON] Button '{}': explicit width={:?}, height={:?}, min_width={:?}, min_height={:?}", 
+                    element.id, style.size.width, style.size.height, style.min_size.width, style.min_size.height);
             }
             kryon_core::ElementType::Text => {
                 style.display = Display::Block;

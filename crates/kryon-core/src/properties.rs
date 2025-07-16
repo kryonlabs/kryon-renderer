@@ -12,6 +12,7 @@ pub enum PropertyValue {
     Resource(String),
     Transform(TransformData),
     CSSUnit(CSSUnitValue),
+    RichText(crate::text::RichText),
 }
 
 #[derive(Debug, Clone)]
@@ -147,6 +148,13 @@ impl PropertyValue {
     pub fn as_css_unit(&self) -> Option<&CSSUnitValue> {
         match self {
             PropertyValue::CSSUnit(u) => Some(u),
+            _ => None,
+        }
+    }
+    
+    pub fn as_rich_text(&self) -> Option<&crate::text::RichText> {
+        match self {
+            PropertyValue::RichText(rt) => Some(rt),
             _ => None,
         }
     }

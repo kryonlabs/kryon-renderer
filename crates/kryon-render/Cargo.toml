@@ -12,9 +12,17 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 bitflags = { workspace = true }
 
+# Text rendering
+cosmic-text = { version = "0.13", optional = true }
+
 # WASM runtime (optional)
 wasmtime = { version = "25.0", optional = true }
 
+# Web dependencies (optional)
+wasm-bindgen = { version = "0.2", optional = true }
+web-sys = { version = "0.3", optional = true }
+
 [features]
-default = []
+default = ["cosmic-text"]
 wasm = ["wasmtime"]
+web = ["wasm-bindgen", "web-sys"]

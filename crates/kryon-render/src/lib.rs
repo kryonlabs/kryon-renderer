@@ -14,6 +14,9 @@ pub enum ScrollbarOrientation {
 pub mod events;
 pub use events::*;
 
+pub mod text_manager;
+pub use text_manager::*;
+
 #[cfg(feature = "wasm")]
 pub mod wasm;
 #[cfg(feature = "wasm")]
@@ -80,6 +83,16 @@ pub enum RenderCommand {
         font_family: Option<String>,
         z_index: i32,
     },
+    DrawRichText {
+        position: Vec2,
+        rich_text: kryon_core::RichText,
+        max_width: Option<f32>,
+        max_height: Option<f32>,
+        default_color: Vec4,
+        alignment: Option<TextAlignment>,
+        transform: Option<TransformData>,
+        z_index: i32,
+    },
     DrawImage {
         position: Vec2,
         size: Vec2,
@@ -94,6 +107,16 @@ pub enum RenderCommand {
     ClearClip,
     /// Informs the renderer of the application's intended canvas size.
     SetCanvasSize(Vec2),
+    /// Native renderer view command for backend-specific rendering
+    NativeRendererView {
+        position: Vec2,
+        size: Vec2,
+        backend: String,
+        script_name: String,
+        element_id: ElementId,
+        config: HashMap<String, PropertyValue>,
+        z_index: i32,
+    },
     /// Input-specific rendering commands
     DrawTextInput {
         position: Vec2,
@@ -287,6 +310,7 @@ impl<R: CommandRenderer> ElementRenderer<R> {
                 match cmd {
                     RenderCommand::DrawRect { z_index, .. } => *z_index,
                     RenderCommand::DrawText { z_index, .. } => *z_index,
+                    RenderCommand::DrawRichText { z_index, .. } => *z_index,
                     RenderCommand::DrawScrollbar { z_index, .. } => *z_index,
                     RenderCommand::DrawImage { .. } => 0,
                     RenderCommand::DrawTextInput { .. } => 1,
@@ -312,9 +336,13 @@ impl<R: CommandRenderer> ElementRenderer<R> {
         element_id: ElementId,
         element: &Element,
     ) -> RenderResult<()> {
-        if !element.visible {
+        // Check if element or any parent is invisible
+        if !self.is_element_visible(elements, element_id) {
+            eprintln!("🚫 [RENDER_SKIP] Element {} ('{}') skipped - not visible", element_id, element.id);
             return Ok(());
         }
+        
+        eprintln!("✅ [RENDER_ELEMENT] Rendering element {} ('{}') - visible", element_id, element.id);
 
         // Check if this element needs clipping for overflow
         let needs_clip = element.overflow_x != kryon_core::OverflowType::Visible || 
@@ -394,6 +422,26 @@ impl<R: CommandRenderer> ElementRenderer<R> {
         Ok(())
     }
 
+    /// Helper function to check visibility including parent chain
+    fn is_element_visible(
+        &self,
+        elements: &HashMap<ElementId, Element>,
+        element_id: ElementId,
+    ) -> bool {
+        if let Some(element) = elements.get(&element_id) {
+            if !element.visible {
+                return false;
+            }
+            
+            // Check parent visibility recursively
+            if let Some(parent_id) = element.parent {
+                return self.is_element_visible(elements, parent_id);
+            }
+        }
+        
+        true // Root element or element not found - consider visible
+    }
+
     /// Translates a single element into one or more `RenderCommand`s.
     /// This function is the heart of the renderer logic.
     fn element_to_commands(
@@ -409,11 +457,19 @@ impl<R: CommandRenderer> ElementRenderer<R> {
 
         // Get the position and size FROM THE LAYOUT ENGINE. This is the single source of truth.
         let Some(position) = layout.computed_positions.get(&element_id).copied() else {
+            eprintln!("🚫 [RENDER_CMD] Element {} ('{}') has no position in layout", element_id, element.id);
             return Ok(commands); // Element not positioned by layout, so it can't be drawn.
         };
         let Some(size) = layout.computed_sizes.get(&element_id).copied() else {
+            eprintln!("🚫 [RENDER_CMD] Element {} ('{}') has no size in layout", element_id, element.id);
             return Ok(commands); // Element has no size, so it can't be drawn.
         };
+        
+        // Debug output for dropdown-related elements
+        if element.id == "menu" || element.id == "button" || element.id == "container" {
+            eprintln!("🔍 [RENDER_DEBUG] Element {} ('{}') - pos=({}, {}), size=({}, {}), visible={}", 
+                element_id, element.id, position.x, position.y, size.x, size.y, element.visible);
+        }
         
         // Debug output to track layout vs rendering discrepancy
         if size.x == 800.0 && size.y > 70.0 && size.y < 80.0 {
@@ -460,8 +516,30 @@ impl<R: CommandRenderer> ElementRenderer<R> {
             });
         }
 
-        // Draw the text, if any.
-        if !element.text.is_empty() {
+        // Check for rich text spans first
+        if let Some(spans_property) = element.custom_properties.get("spans") {
+            if let PropertyValue::RichText(rich_text) = spans_property {
+                let mut text_color = style.text_color;
+                text_color.w *= element.opacity;
+
+                if text_color.w > 0.0 {
+                    let text_z_index = element.z_index;
+                    
+                    commands.push(RenderCommand::DrawRichText {
+                        position,
+                        rich_text: rich_text.clone(),
+                        max_width: Some(size.x),
+                        max_height: Some(size.y),
+                        default_color: text_color,
+                        alignment: Some(element.text_alignment),
+                        transform: transform.clone(),
+                        z_index: text_z_index,
+                    });
+                }
+            }
+        }
+        // Draw the text, if any (fallback for simple text).
+        else if !element.text.is_empty() {
             let mut text_color = style.text_color;
             text_color.w *= element.opacity;
 
@@ -665,6 +743,27 @@ impl<R: CommandRenderer> ElementRenderer<R> {
             
             // Skip drawing the default background rect and text for Input elements
             // since the input-specific commands handle their own rendering
+            return Ok(commands);
+        }
+        
+        // Handle NativeRendererView elements
+        if element.element_type == ElementType::NativeRendererView {
+            if let (Some(backend), Some(script_name)) = (
+                element.native_backend.as_ref(),
+                element.native_render_script.as_ref()
+            ) {
+                commands.push(RenderCommand::NativeRendererView {
+                    position,
+                    size,
+                    backend: backend.clone(),
+                    script_name: script_name.clone(),
+                    element_id: element_id,
+                    config: element.native_config.clone(),
+                    z_index: element.z_index,
+                });
+            }
+            
+            // Don't render anything else for NativeRendererView
             return Ok(commands);
         }
         

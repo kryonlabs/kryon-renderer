@@ -38,7 +38,7 @@ pub struct KRBHeader {
 pub struct ScriptEntry {
     pub language: String,
     pub name: String,
-    pub code: String,
+    pub bytecode: Vec<u8>,
     pub entry_points: Vec<String>,
 }
 
@@ -1480,8 +1480,48 @@ impl KRBParser {
             .and_then(|v| if let PropertyValue::String(s) = v { Some(s) } else { None });
         let flex_grow = element.custom_properties.get("flex_grow")
             .and_then(|v| if let PropertyValue::Float(f) = v { Some(*f) } else { None });
+        let position = element.custom_properties.get("position")
+            .and_then(|v| if let PropertyValue::String(s) = v { Some(s) } else { None });
         
-        // Process flex container properties if we have display: flex
+        // Process position property first, regardless of flexbox properties
+        // Position affects layout behavior and needs to be handled separately
+        if let Some(pos) = position {
+            match pos.as_str() {
+                "absolute" => {
+                    layout_flags |= 0x02; // LAYOUT_ABSOLUTE_BIT
+                    eprintln!("[CSS_CONVERT_POSITION] Element '{}': position=absolute -> layout_flags=0x{:02X}", 
+                        element.id, layout_flags);
+                    element.layout_flags = layout_flags;
+                }
+                "relative" => {
+                    // Relative positioning might need a different flag if supported
+                    eprintln!("[CSS_CONVERT_POSITION] Element '{}': position=relative (no layout flag change needed)", 
+                        element.id);
+                }
+                "static" => {
+                    // Static is default, no special flag needed
+                    eprintln!("[CSS_CONVERT_POSITION] Element '{}': position=static (default)", 
+                        element.id);
+                }
+                _ => {
+                    eprintln!("[CSS_CONVERT_POSITION] Element '{}': unknown position value '{}', ignoring", 
+                        element.id, pos);
+                }
+            }
+        }
+        
+        // Skip legacy layout flag conversion if element has modern flexbox properties
+        // Let the Taffy engine handle these properly instead of corrupting with legacy flags
+        let has_modern_flexbox = align_items.is_some() || justify_content.is_some() || 
+                                flex_direction.is_some() || 
+                                (display.is_some() && display.unwrap() == "flex");
+        
+        if has_modern_flexbox {
+            eprintln!("[CSS_CONVERT_SKIP] Element '{}': Skipping legacy layout flag conversion for modern flexbox properties", element.id);
+            return; // Don't set layout flags, let Taffy handle it
+        }
+        
+        // Process flex container properties if we have display: flex (legacy mode only)
         if let Some(display_val) = display {
             if display_val == "flex" {
                 // Set direction
@@ -1609,12 +1649,14 @@ impl KRBParser {
                 }
             }
             
-            // Parse script code
-            let code = if storage_format == 0 { // Inline
-                let code_data = &self.data[self.position..self.position + data_size];
-                String::from_utf8_lossy(code_data).to_string()
+            // Parse script bytecode
+            let bytecode = if storage_format == 0 { // Inline
+                let bytecode_data = &self.data[self.position..self.position + data_size];
+                bytecode_data.to_vec()
             } else { // External
-                format!("external:{}", data_size) // Resource index
+                // For external storage, we would need to load from resource
+                // For now, return empty vec - this should be handled by the compiler
+                Vec::new()
             };
             
             if storage_format == 0 {
@@ -1624,7 +1666,7 @@ impl KRBParser {
             scripts.push(ScriptEntry {
                 language,
                 name,
-                code,
+                bytecode,
                 entry_points,
             });
         }
@@ -1862,6 +1904,9 @@ impl KRBParser {
             event_handlers: HashMap::new(),
             component_name: None,
             is_component_instance: false,
+            native_backend: None,
+            native_render_script: None,
+            native_config: HashMap::new(),
         };
         
         // Collect all current root elements (elements with no parent)

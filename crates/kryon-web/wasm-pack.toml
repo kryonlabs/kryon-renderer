@@ -1,0 +1,13 @@
+[package]
+name = "kryon-web"
+description = "Kryon Web Renderer - WebAssembly-based rendering for Kryon applications"
+version = "0.1.0"
+authors = ["KryonLabs"]
+license = "MIT"
+repository = "https://github.com/kryonlabs/kryon-renderer"
+
+[package.metadata.wasm-pack.profile.release]
+wee_alloc = true
+
+[package.metadata.wasm-pack.profile.dev]
+debug_assertions = true

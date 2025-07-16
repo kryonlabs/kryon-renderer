@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use anyhow::Result;
-use crate::vm_trait::{ScriptValue, ScriptVM};
+use crate::script::engine_trait::ScriptValue;
 use crate::template_engine::TemplateEngine;
 
 /// Listener trait for variable changes across VMs
@@ -58,8 +58,8 @@ impl SharedScriptData {
         }
     }
 
-    /// Set a global variable and sync it to all VMs
-    pub fn set_variable(&self, name: &str, value: &str, vms: &mut [Box<dyn ScriptVM>]) -> Result<()> {
+    /// Set a global variable and notify change listeners
+    pub fn set_variable(&self, name: &str, value: &str) -> Result<()> {
         let old_value = {
             let mut variables = self.variables.write().unwrap();
             let old = variables.get(name).cloned();
@@ -78,11 +78,6 @@ impl SharedScriptData {
             for listener in &self.change_listeners {
                 listener.on_variable_changed(name, "", value);
             }
-        }
-
-        // Sync to all VMs
-        for vm in vms {
-            vm.set_global_variable(name, ScriptValue::String(value.to_string()))?;
         }
 
         // Update template engine if this is a template variable
@@ -122,20 +117,12 @@ impl SharedScriptData {
         self.change_listeners.push(listener);
     }
 
-    /// Sync variable changes from a specific VM to all other VMs
-    pub fn sync_changes_from_vm(
+    /// Process variable changes from external sources
+    pub fn process_variable_changes(
         &self, 
-        source_vm_index: usize, 
-        vms: &mut [Box<dyn ScriptVM>]
+        changes: &HashMap<String, HashMap<String, String>>
     ) -> Result<HashMap<String, String>> {
         let mut all_changes = HashMap::new();
-
-        if source_vm_index >= vms.len() {
-            return Ok(all_changes);
-        }
-
-        // Get changes from the source VM
-        let changes = vms[source_vm_index].get_pending_changes()?;
 
         // Process template variable changes
         if let Some(template_changes) = changes.get("template_variables") {
@@ -144,13 +131,6 @@ impl SharedScriptData {
                 {
                     let mut variables = self.variables.write().unwrap();
                     variables.insert(name.clone(), value.clone());
-                }
-
-                // Sync to all other VMs
-                for (vm_index, vm) in vms.iter_mut().enumerate() {
-                    if vm_index != source_vm_index {
-                        vm.set_global_variable(name, ScriptValue::String(value.clone()))?;
-                    }
                 }
 
                 // Update template engine
@@ -253,24 +233,16 @@ impl SharedScriptData {
         self.cross_vm_functions.read().unwrap().get(name).cloned()
     }
 
-    /// Call a cross-VM function through the appropriate VM
-    pub fn call_cross_vm_function(
+    /// Get cross-VM function call information (for external coordination)
+    pub fn get_cross_vm_function_call_info(
         &self,
         name: &str,
-        args: Vec<ScriptValue>,
-        vms: &mut [Box<dyn ScriptVM>]
-    ) -> Result<ScriptValue> {
+        args: Vec<ScriptValue>
+    ) -> Result<(CrossVMFunction, Vec<ScriptValue>)> {
         let function_info = self.get_cross_vm_function(name)
             .ok_or_else(|| anyhow::anyhow!("Cross-VM function '{}' not found", name))?;
 
-        // Find the VM that owns this function
-        for vm in vms {
-            if vm.language_name() == function_info.source_vm {
-                return vm.call_function(&function_info.function_name, args);
-            }
-        }
-
-        Err(anyhow::anyhow!("Source VM '{}' for function '{}' not found", function_info.source_vm, name))
+        Ok((function_info, args))
     }
 
     /// Get memory usage across all shared data structures

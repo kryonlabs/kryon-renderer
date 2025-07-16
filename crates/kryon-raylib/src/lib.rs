@@ -1,6 +1,6 @@
 // crates/kryon-raylib/src/lib.rs
 use kryon_render::{
-    Renderer, CommandRenderer, RenderCommand, RenderResult, InputEvent, MouseButton, KeyCode, KeyModifiers
+    Renderer, CommandRenderer, RenderCommand, RenderResult, InputEvent, MouseButton, KeyCode, KeyModifiers, TextManager
 };
 use kryon_core::{CursorType, TransformData, TransformPropertyType, CSSUnit};
 use kryon_layout::LayoutResult;
@@ -17,6 +17,7 @@ pub struct RaylibRenderer {
     textures: HashMap<String, Texture2D>,
     fonts: HashMap<String, Font>,  // Font cache: font_family_name -> Font
     font_paths: HashMap<String, String>,  // Font mappings: font_family_name -> file_path
+    text_manager: TextManager,  // Cosmic-text integration
     pending_commands: Vec<RenderCommand>,
     prev_mouse_pos: Vec2,
     current_cursor: CursorType,
@@ -52,6 +53,7 @@ impl Renderer for RaylibRenderer {
             textures: HashMap::new(),
             fonts: HashMap::new(),
             font_paths: HashMap::new(),
+            text_manager: TextManager::new(),
             pending_commands: Vec::new(),
             prev_mouse_pos: Vec2::new(-1.0, -1.0), // Initialize to invalid position
             current_cursor: CursorType::Default,
@@ -80,7 +82,7 @@ impl Renderer for RaylibRenderer {
             // Execute all commands without borrowing self
             for command in &commands {
 
-                Self::execute_single_command_impl(&mut d, &mut self.textures, &self.fonts, command)?;
+                Self::execute_single_command_impl(&mut d, &mut self.textures, &self.fonts, &mut self.text_manager, command)?;
             }
         }
         
@@ -319,6 +321,7 @@ impl RaylibRenderer {
         d: &mut RaylibDrawHandle,
         textures: &mut HashMap<String, Texture2D>,
         fonts: &HashMap<String, Font>,
+        text_manager: &mut TextManager,
         command: &RenderCommand,
     ) -> RenderResult<()> {
         match command {
@@ -416,6 +419,51 @@ impl RaylibRenderer {
                         );
                     }
                 }
+            }
+            RenderCommand::DrawRichText {
+                position,
+                rich_text,
+                max_width,
+                max_height: _,
+                default_color,
+                alignment: _,
+                transform,
+                z_index: _,
+            } => {
+                // Use TextManager to render rich text with cosmic-text
+                let rendered = text_manager.render_rich_text(
+                    rich_text,
+                    *max_width,
+                    *default_color,
+                );
+                
+                // Apply transform offset if present
+                let base_offset = if let Some(transform_data) = transform {
+                    let (_, _, translation) = extract_transform_values(transform_data);
+                    Vec2::new(position.x + translation.x, position.y + translation.y)
+                } else {
+                    *position
+                };
+                
+                // Render each positioned glyph
+                for glyph in &rendered.glyphs {
+                    let glyph_pos = base_offset + glyph.position;
+                    let raylib_color = vec4_to_raylib_color(glyph.color);
+                    
+                    // For now, render each character as individual text
+                    // TODO: Implement proper glyph texture atlas rendering
+                    let char_str = glyph.character.to_string();
+                    d.draw_text(
+                        &char_str,
+                        glyph_pos.x as i32,
+                        glyph_pos.y as i32,
+                        glyph.font_size as i32,
+                        raylib_color,
+                    );
+                }
+                
+                eprintln!("[RAYLIB_RICH_TEXT] Rendered {} glyphs, bounds: {:?}", 
+                    rendered.glyphs.len(), rendered.bounds);
             }
             RenderCommand::DrawText {
                 position,
@@ -1096,6 +1144,58 @@ impl RaylibRenderer {
             RenderCommand::ExecuteWasmFunction { function_name: _, params: _ } => {
                 // WASM function execution would be handled by a separate WASM runtime
                 // This command is just a marker for the rendering pipeline
+            }
+            RenderCommand::NativeRendererView { position, size, backend, script_name, element_id, config: _, z_index: _ } => {
+                // Handle NativeRendererView rendering for Raylib backend
+                if backend == "raylib" {
+                    // TODO: Execute the native render script here
+                    // This would need to be coordinated with the script system
+                    eprintln!("[NATIVE_RENDERER] Raylib NativeRendererView '{}' should execute script: '{}'", element_id, script_name);
+                    
+                    // Draw a border to show the native view bounds
+                    let border_color = Color::new(100, 100, 100, 255);
+                    d.draw_rectangle_lines(
+                        position.x as i32,
+                        position.y as i32,
+                        size.x as i32,
+                        size.y as i32,
+                        border_color,
+                    );
+                    
+                    // For now, draw a placeholder to show NativeRendererView is working
+                    d.draw_rectangle(
+                        (position.x + 2.0) as i32,
+                        (position.y + 2.0) as i32,
+                        (size.x - 4.0) as i32,
+                        (size.y - 4.0) as i32,
+                        Color::new(50, 50, 150, 100), // Semi-transparent blue
+                    );
+                    
+                    d.draw_text(
+                        &format!("Native Raylib View\nScript: {}", script_name),
+                        (position.x + 10.0) as i32,
+                        (position.y + 10.0) as i32,
+                        16,
+                        Color::WHITE,
+                    );
+                } else {
+                    // Draw a placeholder for non-Raylib backends
+                    d.draw_rectangle(
+                        position.x as i32,
+                        position.y as i32,
+                        size.x as i32,
+                        size.y as i32,
+                        Color::new(100, 100, 100, 100), // Gray placeholder
+                    );
+                    
+                    d.draw_text(
+                        &format!("Unsupported backend: {}", backend),
+                        (position.x + 10.0) as i32,
+                        (position.y + 10.0) as i32,
+                        16,
+                        Color::WHITE,
+                    );
+                }
             }
         }
         Ok(())

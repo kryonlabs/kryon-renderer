@@ -37,13 +37,7 @@ path = "src/bin/kryon-bundle.rs"
 name = "kryon-standalone"
 path = "src/bin/kryon-standalone.rs"
 
-[[bin]]
-name = "debug_script_system"
-path = "src/debug_script_system.rs"
 
-[[bin]]
-name = "test_counter"
-path = "src/test_counter.rs"
 
 # [[bin]]
 # name = "minimal_reactive_test"
@@ -76,7 +70,8 @@ members = [
     "crates/kryon-wgpu",
     "crates/kryon-ratatui",
     "crates/kryon-raylib",
-    "crates/kryon-runtime"
+    "crates/kryon-runtime",
+    "crates/kryon-web"
 ]
 
 [dependencies]
@@ -109,6 +104,9 @@ crossterm = { version = "0.27", optional = true }
 
 # Raylib backend dependencies (optional)
 raylib = { version = "5.0", optional = true }
+
+# Text rendering
+cosmic-text = "0.13"
 
 [features]
 default = ["raylib", "kryon-runtime/lua-vm"]

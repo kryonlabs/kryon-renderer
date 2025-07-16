@@ -10,3 +10,13 @@ thiserror = { workspace = true }
 bytemuck = { workspace = true }
 glam = { workspace = true }
 tracing = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+
+# Web dependencies
+wasm-bindgen = { version = "0.2", optional = true }
+web-sys = { version = "0.3", optional = true }
+js-sys = { version = "0.3", optional = true }
+
+[features]
+default = []
+web = ["wasm-bindgen", "web-sys", "js-sys"]

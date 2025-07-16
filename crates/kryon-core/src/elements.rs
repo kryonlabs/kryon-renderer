@@ -13,6 +13,7 @@ pub enum ElementType {
     Image = 0x04,
     Canvas = 0x05,
     WasmView = 0x06,
+    NativeRendererView = 0x07,
     Button = 0x10,
     Input = 0x11,
     Custom(u8),
@@ -28,6 +29,7 @@ impl From<u8> for ElementType {
             0x04 => ElementType::Image,
             0x05 => ElementType::Canvas,
             0x06 => ElementType::WasmView,
+            0x07 => ElementType::NativeRendererView,
             0x10 => ElementType::Button,
             0x11 => ElementType::Input,
             other => ElementType::Custom(other),
@@ -110,6 +112,11 @@ pub struct Element {
     // Component-specific
     pub component_name: Option<String>,
     pub is_component_instance: bool,
+    
+    // NativeRendererView-specific
+    pub native_backend: Option<String>,        // e.g., "raylib", "wgpu"
+    pub native_render_script: Option<String>,  // Lua function name
+    pub native_config: HashMap<String, PropertyValue>, // Backend-specific config
 }
 
 pub type ElementId = u32;
@@ -190,6 +197,9 @@ impl Default for Element {
             event_handlers: HashMap::new(),
             component_name: None,
             is_component_instance: false,
+            native_backend: None,
+            native_render_script: None,
+            native_config: HashMap::new(),
         }
     }
 }

@@ -144,6 +144,9 @@ pub enum PropertyId {
     OverflowX = 0x8C,
     OverflowY = 0x8D,
     
+    // Rich text properties  
+    Spans = 0x8E,
+    
     // Reserved for custom properties (0x90-0xFF)
     Custom(u8),
 }
@@ -251,6 +254,7 @@ impl From<u8> for PropertyId {
             0x8B => PropertyId::Overflow,
             0x8C => PropertyId::OverflowX,
             0x8D => PropertyId::OverflowY,
+            0x8E => PropertyId::Spans,
             other => PropertyId::Custom(other),
         }
     }
@@ -360,6 +364,7 @@ impl PropertyId {
             PropertyId::Overflow => 0x8B,
             PropertyId::OverflowX => 0x8C,
             PropertyId::OverflowY => 0x8D,
+            PropertyId::Spans => 0x8E,
             PropertyId::Custom(value) => value,
         }
     }

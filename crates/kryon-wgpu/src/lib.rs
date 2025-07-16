@@ -12,6 +12,12 @@ pub mod vertex;
 pub mod text;
 pub mod resources;
 
+#[cfg(feature = "web")]
+pub mod web_renderer;
+
+#[cfg(feature = "web")]
+pub use web_renderer::WebWgpuRenderer;
+
 use vertex::*;
 use text::TextRenderer;
 use resources::ResourceManager;

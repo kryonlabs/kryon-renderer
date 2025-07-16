@@ -1,0 +1,40 @@
+# crates/kryon-web/Cargo.toml
+[package]
+name = "kryon-web"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+kryon-core = { path = "../kryon-core", features = ["web"] }
+kryon-layout = { path = "../kryon-layout" }
+kryon-render = { path = "../kryon-render", features = ["web"] }
+kryon-runtime = { path = "../kryon-runtime", features = ["web"], default-features = false }
+
+glam = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+winit = { workspace = true, optional = true }
+
+# Web-specific dependencies
+wasm-bindgen = "0.2"
+web-sys = "0.3"
+js-sys = "0.3"
+wasm-bindgen-futures = "0.4"
+console_error_panic_hook = "0.1"
+tracing-web = "0.1"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[features]
+default = ["canvas"]
+canvas = []
+dom = []
+webgpu = []
+winit = ["dep:winit"]
+hybrid = ["canvas", "dom"]
+full = ["canvas", "dom", "webgpu", "winit"]

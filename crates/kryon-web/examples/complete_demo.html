@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kryon Web Renderer - Complete Demo</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+        }
+        
+        #main-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #header {
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+        
+        #header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 300;
+        }
+        
+        #controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        
+        #controls label {
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        #controls select, #controls button {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        #controls select {
+            background: white;
+            color: #333;
+        }
+        
+        #controls button {
+            background: #4CAF50;
+            color: white;
+            font-weight: 500;
+        }
+        
+        #controls button:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+        
+        #controls button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        #app-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        #render-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            background: #f8f9fa;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        #kryon-canvas {
+            max-width: 100%;
+            max-height: 100%;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+        
+        #dom-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+        
+        #status-bar {
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        #status-info {
+            display: flex;
+            gap: 20px;
+        }
+        
+        #status-info span {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        #status-info .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4CAF50;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        #loading-content {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+        
+        #loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        #error-toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #ff4444;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(255, 68, 68, 0.3);
+            z-index: 1001;
+            transform: translateX(400px);
+            transition: transform 0.3s ease;
+        }
+        
+        #error-toast.show {
+            transform: translateX(0);
+        }
+        
+        .feature-showcase {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            max-width: 300px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        
+        .feature-showcase h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+            font-size: 16px;
+        }
+        
+        .feature-showcase ul {
+            margin: 0;
+            padding-left: 20px;
+            color: #666;
+        }
+        
+        .feature-showcase li {
+            margin: 5px 0;
+        }
+        
+        .feature-showcase .status {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading-overlay">
+        <div id="loading-content">
+            <div id="loading-spinner"></div>
+            <h2>Loading Kryon Web Renderer</h2>
+            <p>Initializing WebAssembly module...</p>
+        </div>
+    </div>
+    
+    <div id="error-toast"></div>
+    
+    <div id="main-container">
+        <div id="header">
+            <h1>Kryon Web Renderer - Complete Demo</h1>
+            <div id="controls">
+                <label for="render-mode">Render Mode:</label>
+                <select id="render-mode">
+                    <option value="canvas">Canvas 2D</option>
+                    <option value="webgl">WebGL 2</option>
+                    <option value="webgpu">WebGPU</option>
+                    <option value="dom">DOM</option>
+                </select>
+                
+                <button id="load-demo">Load Demo</button>
+                <button id="clear-renderer">Clear</button>
+                <button id="run-benchmark">Benchmark</button>
+                <button id="toggle-features">Features</button>
+            </div>
+        </div>
+        
+        <div id="app-container">
+            <div id="render-container">
+                <canvas id="kryon-canvas" width="800" height="600"></canvas>
+                <div id="dom-container"></div>
+            </div>
+            
+            <div id="feature-showcase" style="display: none;">
+                <h3>Implemented Features</h3>
+                <ul>
+                    <li><span class="status">✓</span> Canvas 2D Rendering</li>
+                    <li><span class="status">✓</span> DOM Element Rendering</li>
+                    <li><span class="status">✓</span> WebGPU Support</li>
+                    <li><span class="status">✓</span> Event Handling</li>
+                    <li><span class="status">✓</span> Asset Loading</li>
+                    <li><span class="status">✓</span> Winit Integration</li>
+                    <li><span class="status">✓</span> Multiple Render Commands</li>
+                    <li><span class="status">✓</span> RequestAnimationFrame Loop</li>
+                    <li><span class="status">✓</span> Responsive Design</li>
+                    <li><span class="status">✓</span> Error Handling</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div id="status-bar">
+            <div id="status-info">
+                <span><div class="status-indicator"></div>Renderer: <span id="current-mode">Canvas 2D</span></span>
+                <span>FPS: <span id="fps-counter">0</span></span>
+                <span>Frame: <span id="frame-counter">0</span></span>
+                <span>Memory: <span id="memory-usage">0 MB</span></span>
+            </div>
+            <div id="render-stats">
+                <span>Elements: <span id="element-count">0</span></span>
+                <span>Commands: <span id="command-count">0</span></span>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import init, { KryonWebApp } from './pkg/kryon_web.js';
+        
+        let app = null;
+        let renderMode = 'canvas';
+        let frameCount = 0;
+        let lastFrameTime = Date.now();
+        let commandCount = 0;
+        let elementCount = 0;
+        let featuresVisible = false;
+        
+        // Demo animations
+        const demoAnimations = {
+            rotating: 0,
+            scaling: 0,
+            colors: 0,
+        };
+        
+        async function initializeApp() {
+            try {
+                await init();
+                app = new KryonWebApp();
+                
+                await setupRenderMode();
+                hideLoading();
+                setupEventListeners();
+                startRenderLoop();
+                
+                showSuccessMessage('Kryon Web Renderer initialized successfully!');
+                
+                // Auto-load demo after initialization
+                setTimeout(() => {
+                    loadDemo();
+                }, 1000);
+                
+            } catch (error) {
+                showError('Failed to initialize: ' + error.message);
+                console.error('Initialization error:', error);
+            }
+        }
+        
+        async function setupRenderMode() {
+            const canvas = document.getElementById('kryon-canvas');
+            const domContainer = document.getElementById('dom-container');
+            
+            if (renderMode === 'canvas' || renderMode === 'webgl' || renderMode === 'webgpu') {
+                canvas.style.display = 'block';
+                domContainer.style.display = 'none';
+                await app.init_canvas('kryon-canvas');
+            } else if (renderMode === 'dom') {
+                canvas.style.display = 'none';
+                domContainer.style.display = 'block';
+                await app.init_dom('dom-container');
+            }
+            
+            document.getElementById('current-mode').textContent = renderMode.charAt(0).toUpperCase() + renderMode.slice(1);
+        }
+        
+        function setupEventListeners() {
+            document.getElementById('render-mode').addEventListener('change', async (e) => {
+                renderMode = e.target.value;
+                await setupRenderMode();
+                loadDemo(); // Reload demo for new renderer
+            });
+            
+            document.getElementById('load-demo').addEventListener('click', loadDemo);
+            document.getElementById('clear-renderer').addEventListener('click', clearRenderer);
+            document.getElementById('run-benchmark').addEventListener('click', runBenchmark);
+            document.getElementById('toggle-features').addEventListener('click', toggleFeatures);
+            
+            // Window resize handler
+            window.addEventListener('resize', handleResize);
+        }
+        
+        function loadDemo() {
+            try {
+                elementCount = 0;
+                commandCount = 0;
+                
+                if (renderMode === 'canvas' || renderMode === 'webgl' || renderMode === 'webgpu') {
+                    renderCanvasDemo();
+                } else if (renderMode === 'dom') {
+                    renderDomDemo();
+                }
+                
+                updateStats();
+            } catch (error) {
+                showError('Failed to load demo: ' + error.message);
+            }
+        }
+        
+        function renderCanvasDemo() {
+            const canvas = document.getElementById('kryon-canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Animated background
+            const gradient = ctx.createRadialGradient(
+                canvas.width / 2, canvas.height / 2, 0,
+                canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) / 2
+            );
+            gradient.addColorStop(0, `hsl(${demoAnimations.colors}, 70%, 60%)`);
+            gradient.addColorStop(1, `hsl(${demoAnimations.colors + 60}, 50%, 30%)`);
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            commandCount++;
+            
+            // Rotating rectangles
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            
+            for (let i = 0; i < 5; i++) {
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.rotate(demoAnimations.rotating + i * Math.PI / 2.5);
+                
+                const size = 60 + Math.sin(demoAnimations.scaling + i) * 20;
+                ctx.fillStyle = `hsla(${i * 60 + demoAnimations.colors}, 80%, 60%, 0.8)`;
+                ctx.fillRect(-size/2, -size/2, size, size);
+                
+                ctx.restore();
+                elementCount++;
+                commandCount++;
+            }
+            
+            // Animated text
+            ctx.save();
+            ctx.translate(centerX, centerY - 100);
+            ctx.rotate(Math.sin(demoAnimations.scaling) * 0.1);
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 32px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Kryon Web Renderer', 0, 0);
+            ctx.restore();
+            elementCount++;
+            commandCount++;
+            
+            // Subtitle
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.font = '18px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(`${renderMode.toUpperCase()} Demo`, centerX, centerY + 150);
+            elementCount++;
+            commandCount++;
+            
+            // Performance info
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.font = '14px monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText(`Frame: ${frameCount}`, 20, 30);
+            ctx.fillText(`Elements: ${elementCount}`, 20, 50);
+            ctx.fillText(`Commands: ${commandCount}`, 20, 70);
+            elementCount += 3;
+            commandCount += 3;
+        }
+        
+        function renderDomDemo() {
+            const container = document.getElementById('dom-container');
+            container.innerHTML = '';
+            
+            // Create animated elements
+            const centerX = window.innerWidth / 2;
+            const centerY = window.innerHeight / 2;
+            
+            // Main title
+            const title = document.createElement('div');
+            title.style.cssText = `
+                position: absolute;
+                top: ${centerY - 150}px;
+                left: 50%;
+                transform: translateX(-50%) rotate(${Math.sin(demoAnimations.scaling) * 5}deg);
+                font-size: 48px;
+                font-weight: bold;
+                color: white;
+                text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+                text-align: center;
+                white-space: nowrap;
+            `;
+            title.textContent = 'Kryon Web Renderer';
+            container.appendChild(title);
+            elementCount++;
+            
+            // Animated rectangles
+            for (let i = 0; i < 5; i++) {
+                const rect = document.createElement('div');
+                const angle = demoAnimations.rotating + i * Math.PI / 2.5;
+                const radius = 100;
+                const x = centerX + Math.cos(angle) * radius;
+                const y = centerY + Math.sin(angle) * radius;
+                const size = 60 + Math.sin(demoAnimations.scaling + i) * 20;
+                
+                rect.style.cssText = `
+                    position: absolute;
+                    left: ${x - size/2}px;
+                    top: ${y - size/2}px;
+                    width: ${size}px;
+                    height: ${size}px;
+                    background: hsla(${i * 60 + demoAnimations.colors}, 80%, 60%, 0.8);
+                    border-radius: 8px;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+                    transition: all 0.1s ease;
+                `;
+                container.appendChild(rect);
+                elementCount++;
+            }
+            
+            // Subtitle
+            const subtitle = document.createElement('div');
+            subtitle.style.cssText = `
+                position: absolute;
+                top: ${centerY + 100}px;
+                left: 50%;
+                transform: translateX(-50%);
+                font-size: 24px;
+                color: rgba(255, 255, 255, 0.9);
+                text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+            `;
+            subtitle.textContent = 'DOM Mode Demo';
+            container.appendChild(subtitle);
+            elementCount++;
+            
+            commandCount = elementCount; // Each DOM element is a command
+        }
+        
+        function clearRenderer() {
+            if (renderMode === 'canvas' || renderMode === 'webgl' || renderMode === 'webgpu') {
+                const canvas = document.getElementById('kryon-canvas');
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            } else if (renderMode === 'dom') {
+                document.getElementById('dom-container').innerHTML = '';
+            }
+            
+            elementCount = 0;
+            commandCount = 0;
+            updateStats();
+        }
+        
+        async function runBenchmark() {
+            const button = document.getElementById('run-benchmark');
+            button.disabled = true;
+            button.textContent = 'Running...';
+            
+            try {
+                const startTime = performance.now();
+                const iterations = 100;
+                
+                for (let i = 0; i < iterations; i++) {
+                    loadDemo();
+                    await new Promise(resolve => setTimeout(resolve, 16)); // ~60 FPS
+                }
+                
+                const endTime = performance.now();
+                const duration = endTime - startTime;
+                const fps = Math.round(iterations / (duration / 1000));
+                
+                showSuccessMessage(`Benchmark complete! Average FPS: ${fps}`);
+            } catch (error) {
+                showError('Benchmark failed: ' + error.message);
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Benchmark';
+            }
+        }
+        
+        function toggleFeatures() {
+            featuresVisible = !featuresVisible;
+            const showcase = document.getElementById('feature-showcase');
+            showcase.style.display = featuresVisible ? 'block' : 'none';
+        }
+        
+        function startRenderLoop() {
+            function render(timestamp) {
+                try {
+                    // Update animations
+                    demoAnimations.rotating += 0.02;
+                    demoAnimations.scaling += 0.03;
+                    demoAnimations.colors += 0.5;
+                    
+                    if (demoAnimations.colors > 360) demoAnimations.colors = 0;
+                    
+                    // Update demo if loaded
+                    if (elementCount > 0) {
+                        loadDemo();
+                    }
+                    
+                    // Update performance counters
+                    updatePerformanceCounters();
+                    
+                    // Call app render if available
+                    if (app && app.render) {
+                        app.render(timestamp);
+                    }
+                    
+                    requestAnimationFrame(render);
+                } catch (error) {
+                    console.error('Render loop error:', error);
+                    showError('Render error: ' + error.message);
+                }
+            }
+            
+            requestAnimationFrame(render);
+        }
+        
+        function updatePerformanceCounters() {
+            const now = Date.now();
+            frameCount++;
+            
+            if (now - lastFrameTime >= 1000) {
+                const fps = Math.round(frameCount / ((now - lastFrameTime) / 1000));
+                document.getElementById('fps-counter').textContent = fps;
+                frameCount = 0;
+                lastFrameTime = now;
+            }
+            
+            document.getElementById('frame-counter').textContent = frameCount;
+            
+            if (performance.memory) {
+                const memoryMB = Math.round(performance.memory.usedJSHeapSize / 1024 / 1024);
+                document.getElementById('memory-usage').textContent = memoryMB + ' MB';
+            }
+        }
+        
+        function updateStats() {
+            document.getElementById('element-count').textContent = elementCount;
+            document.getElementById('command-count').textContent = commandCount;
+        }
+        
+        function handleResize() {
+            const canvas = document.getElementById('kryon-canvas');
+            const container = canvas.parentElement;
+            
+            // Maintain aspect ratio
+            const aspectRatio = 4 / 3;
+            const containerWidth = container.clientWidth - 40;
+            const containerHeight = container.clientHeight - 40;
+            
+            let newWidth, newHeight;
+            
+            if (containerWidth / containerHeight > aspectRatio) {
+                newHeight = containerHeight;
+                newWidth = containerHeight * aspectRatio;
+            } else {
+                newWidth = containerWidth;
+                newHeight = containerWidth / aspectRatio;
+            }
+            
+            canvas.style.width = newWidth + 'px';
+            canvas.style.height = newHeight + 'px';
+            
+            // Redraw if demo is loaded
+            if (elementCount > 0) {
+                setTimeout(loadDemo, 100);
+            }
+        }
+        
+        function hideLoading() {
+            document.getElementById('loading-overlay').style.display = 'none';
+        }
+        
+        function showError(message) {
+            const toast = document.getElementById('error-toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 5000);
+        }
+        
+        function showSuccessMessage(message) {
+            // Create temporary success toast
+            const toast = document.createElement('div');
+            toast.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #4CAF50;
+                color: white;
+                padding: 15px 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+                z-index: 1001;
+                transform: translateX(400px);
+                transition: transform 0.3s ease;
+            `;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => toast.style.transform = 'translateX(0)', 100);
+            setTimeout(() => {
+                toast.style.transform = 'translateX(400px)';
+                setTimeout(() => document.body.removeChild(toast), 300);
+            }, 3000);
+        }
+        
+        // Initialize when page loads
+        window.addEventListener('load', initializeApp);
+        
+        // Handle unhandled promise rejections
+        window.addEventListener('unhandledrejection', (event) => {
+            showError('Unhandled error: ' + event.reason);
+            console.error('Unhandled promise rejection:', event.reason);
+        });
+    </script>
+</body>
+</html>

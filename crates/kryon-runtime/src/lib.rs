@@ -12,21 +12,15 @@ use std::time::{Duration, Instant};
 
 pub mod backends;
 pub mod event_system;
-pub mod script_system;
+pub mod script;
 pub mod template_engine;
-pub mod vm_trait;
 pub mod shared_data;
-pub mod lua_vm;
-pub mod vm_registry;
 
 pub use backends::*;
 pub use event_system::*;
-pub use script_system::*;
+pub use script::ScriptSystem;
 pub use template_engine::*;
-pub use vm_trait::*;
 pub use shared_data::*;
-pub use lua_vm::*;
-pub use vm_registry::*;
 
 pub struct KryonApp<R: CommandRenderer> {
     // Core data
@@ -79,7 +73,7 @@ impl<R: CommandRenderer> KryonApp<R> {
         let viewport_size = renderer.viewport_size();
         
         let event_system = EventSystem::new();
-        let script_system = ScriptSystem::new();
+        let script_system = ScriptSystem::new()?;
         let template_engine = TemplateEngine::new(&krb_file);
         
         let mut app = Self {
@@ -102,21 +96,18 @@ impl<R: CommandRenderer> KryonApp<R> {
             frame_count: 0,
         };
         
-        // Setup bridge functions for script-element interaction BEFORE loading scripts
-        app.script_system.setup_bridge_functions(&app.elements, &app.krb_file)?;
+        // Initialize the script system with KRB file data
+        app.script_system.initialize(&app.krb_file, &app.elements)?;
         
-        // Register DOM functions for element traversal and manipulation
-        app.script_system.register_dom_functions(&app.elements, &app.krb_file)?;
-        
-        // Initialize scripts (now that DOM API is available)
-        app.script_system.load_scripts(&app.krb_file.scripts)?;
+        // Load compiled scripts from KRB file
+        app.script_system.load_compiled_scripts(&app.krb_file.scripts)?;
         
         // Initialize template variables in the script system
         // Always initialize template variables from KRB data to ensure script access
         if app.template_engine.has_bindings() {
             tracing::info!("🔍 [INIT_DEBUG] Template engine has bindings, using template variables");
-            let template_vars = app.template_engine.get_variables();
-            app.script_system.initialize_template_variables(template_vars)?;
+            let template_vars = app.template_engine.get_variables().clone();
+            app.script_system.initialize_template_variables(&template_vars)?;
         } else {
             tracing::info!("🔍 [INIT_DEBUG] Template engine has no bindings, extracting variables from KRB");
             // Extract template variables directly from KRB data
@@ -127,10 +118,10 @@ impl<R: CommandRenderer> KryonApp<R> {
             app.script_system.initialize_template_variables(&vars)?;
         }
         
-        // Apply any initial visibility changes set by scripts during initialization
-        let visibility_changes = app.script_system.apply_pending_visibility_changes(&mut app.elements)?;
-        if visibility_changes {
-            tracing::info!("Applied initial visibility changes from scripts");
+        // Apply any initial changes set by scripts during initialization
+        let changes_applied = app.script_system.apply_pending_changes(&mut app.elements)?;
+        if changes_applied {
+            tracing::info!("Applied initial changes from scripts");
         }
         
         // Initialize template variables (apply default values to elements)
@@ -156,16 +147,26 @@ impl<R: CommandRenderer> KryonApp<R> {
         Ok(())
     }
     
-    pub fn update(&mut self, delta_time: Duration) -> anyhow::Result<()> {
-        // Update script system
-        self.script_system.update(delta_time, &mut self.elements)?;
+    pub fn update(&mut self, _delta_time: Duration) -> anyhow::Result<()> {
+        // Get pending changes from scripts and apply both DOM and template variable changes
+        let pending_changes = self.script_system.get_pending_changes()?;
         
-        // Check for template variable changes from scripts
-        let template_changes = self.script_system.apply_pending_template_variable_changes()?;
-        if !template_changes.is_empty() {
-            for (name, value) in template_changes {
-                self.set_template_variable(&name, &value)?;
+        // Apply template variable changes first
+        if let Some(template_changes) = pending_changes.get("template_variables") {
+            for (name, value) in &template_changes.data {
+                self.set_template_variable(name, value)?;
             }
+            tracing::debug!("Applied {} template variable changes", template_changes.data.len());
+        }
+        
+        // Apply DOM changes from the same change set
+        let changes_applied = self.script_system.apply_pending_dom_changes(&mut self.elements, &pending_changes)?;
+        
+        // Clear changes after applying them
+        self.script_system.clear_pending_changes()?;
+        
+        if changes_applied {
+            self.needs_render = true;
         }
         
         // Process events
@@ -302,6 +303,7 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
                 
                 // Trigger hover event
                 if let Some(handler) = element.event_handlers.get(&EventType::Hover) {
+                    use kryon_core::PropertyValue;
                     self.script_system.call_function(handler, vec![])?;
                 }
             } else if !should_hover && was_hovering && !is_checked {
@@ -333,35 +335,34 @@ fn update_layout(&mut self) -> anyhow::Result<()> {
                 // Trigger click event first, before changing any states
                 if let Some(element) = self.elements.get(&element_id) {
                     if let Some(handler) = element.event_handlers.get(&EventType::Click) {
+                        // Call the click handler function
+                        use kryon_core::PropertyValue;
                         self.script_system.call_function(handler, vec![])?;
                         
                         // Apply any pending changes from scripts
-                        let style_changes = self.script_system.apply_pending_style_changes(&mut self.elements)?;
-                        let state_changes = self.script_system.apply_pending_state_changes(&mut self.elements)?;
-                        let text_changes = self.script_system.apply_pending_text_changes(&mut self.elements)?;
-                        let visibility_changes = self.script_system.apply_pending_visibility_changes(&mut self.elements)?;
+                        let changes_applied = self.script_system.apply_pending_changes(&mut self.elements)?;
                         
                         // Apply template variable changes from scripts
-                        let template_changes = self.script_system.apply_pending_template_variable_changes()?;
-                        let template_variable_changes = if !template_changes.is_empty() {
-                            for (name, value) in template_changes {
-                                self.set_template_variable(&name, &value)?;
+                        let pending_changes = self.script_system.get_pending_changes()?;
+                        let template_variable_changes = if let Some(template_changes) = pending_changes.get("template_variables") {
+                            for (name, value) in &template_changes.data {
+                                self.set_template_variable(name, value)?;
                             }
-                            true
+                            !template_changes.data.is_empty()
                         } else {
                             false
                         };
                         
-                        if style_changes || state_changes || text_changes || visibility_changes || template_variable_changes {
+                        if changes_applied || template_variable_changes {
                             tracing::info!("Changes applied, triggering re-render");
                             self.needs_render = true;
                             
-                            // Force immediate layout update for template variable changes
-                            // This ensures that reactive template variables update immediately
-                            if template_variable_changes && self.needs_layout {
+                            // Force layout update for visibility changes and template variable changes
+                            // This ensures that elements become visible/invisible immediately and template variables update
+                            if template_variable_changes {
                                 self.update_layout()?;
                                 self.needs_layout = false;
-                                tracing::info!("🚀 [SCRIPT_IMMEDIATE] Immediate layout update applied for template variable changes");
+                                tracing::info!("🚀 [SCRIPT_IMMEDIATE] Immediate layout update applied for template changes");
                             }
                         }
                         

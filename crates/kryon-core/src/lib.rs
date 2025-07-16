@@ -8,6 +8,7 @@ pub mod resources;
 pub mod events;
 pub mod style;
 pub mod layout_units;
+pub mod text;
 
 
 pub use elements::*;
@@ -18,7 +19,8 @@ pub use krb::*;
 pub use resources::*;
 pub use events::*;
 pub use style::*;
-pub use layout_units::*; 
+pub use layout_units::*;
+pub use text::*; 
 
 
 #[derive(Debug, thiserror::Error)]
