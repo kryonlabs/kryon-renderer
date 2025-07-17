@@ -300,3 +300,4 @@ tramp
 .\#*
 
 crates/kryon-ratatui/src/snapshots/
+hello_world_bundled
